@@ -1,0 +1,16 @@
+[package]
+name = "density-mesh-image"
+version = "1.0.0"
+authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
+edition = "2018"
+description = "Image module for density mesh generator"
+license = "MIT"
+homepage = "https://github.com/PsichiX/density-mesh"
+repository = "https://github.com/PsichiX/density-mesh"
+documentation = "https://docs.rs/density-mesh-image"
+readme = "../README.md"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+density-mesh-core = { version = "1.0", path = "../density-mesh-core" }
+image = { default-features = false, features = ["png"], version = "0.23" }

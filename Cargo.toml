@@ -1,0 +1,6 @@
+[workspace]
+members = [
+  "density-mesh-core",
+  "density-mesh-image",
+  "density-mesh-cli",
+]

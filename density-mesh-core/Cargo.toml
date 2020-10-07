@@ -1,0 +1,15 @@
+[package]
+name = "density-mesh-core"
+version = "1.0.0"
+authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
+edition = "2018"
+description = "Core module for density mesh generator"
+license = "MIT"
+homepage = "https://github.com/PsichiX/density-mesh"
+repository = "https://github.com/PsichiX/density-mesh"
+documentation = "https://docs.rs/density-mesh-core"
+readme = "../README.md"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+triangulation = "0.1"
