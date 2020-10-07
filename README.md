@@ -5,19 +5,39 @@
 ## About
 Crates used to generate 2D mesh from images representing density/height map.
 
-Algorithm gets source image:
+**Algorithm gets source image:**
+
 ![image source](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/logo.png)
 
-Converts it into density/height values:
+**Converts it into density/height values (here from alpha channell):**
+
 ![image values](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/logo.data.png)
 
-Next makes steepness values:
+**Next makes steepness values:**
+
 ![image steepness](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/logo.steepness.png)
 
-And builds mesh based on the highest steepness points:
+**And builds mesh based on the highest steepness points:**
+
 ![image mesh](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/logo.vis.png)
 
+## Rust crates:
+- https://crates.io/crates/density-mesh-core
+  
+  Module used to generate mesh from density map.
+
+- https://crates.io/crates/density-mesh-image
+  
+  Module used to generate density map from image.
+
+Typical use case would be to use two of them to create mesh from images but in case you have your own image handler, you can stick to the core module and produce density maps by yourself.
+
 ## CLI
+#### Install / Update
+```bash
+cargo install density-mesh-cli --force
+```
+
 #### Example
 ```bash
 density-mesh mesh -i image.png -o mesh.obj --obj
