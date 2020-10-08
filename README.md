@@ -21,16 +21,58 @@ Crates used to generate 2D mesh from images representing density/height map.
 
 ![image mesh](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/logo.vis.png)
 
-## Rust crates:
-- https://crates.io/crates/density-mesh-core
-  
-  Module used to generate mesh from density map.
-
-- https://crates.io/crates/density-mesh-image
-  
-  Module used to generate density map from image.
+## Rust API
+#### Important modules
+- https://crates.io/crates/density-mesh-core - Module used to generate mesh from density map.
+- https://crates.io/crates/density-mesh-image - Module used to generate density map from image.
 
 Typical use case would be to use two of them to create mesh from images but in case you have your own image handler, you can stick to the core module and produce density maps by yourself.
+
+#### Working with chunks
+Chunks are used for example for real-time terrain generation when you have a destructible heightmap and just want to update modified chunks at a time, instead of whole terrain.
+
+```rust
+let image = DynamicImage::ImageRgba8(
+    image::open("../resources/heightmap.png")
+        .expect("Cannot open file")
+        .to_rgba(),
+);
+let count = 4;
+let width = image.width() / count;
+let height = image.height() / count;
+let images = (0..(count * count))
+    .into_iter()
+    .map(|i| {
+        let col = i % count;
+        let row = i / count;
+        let x = col * width;
+        let y = row * height;
+        let mut image = image.crop_imm(x, y, width + 1, height + 1);
+        let settings = GenerateDensityImageSettings::default();
+        let map = generate_densitymap_from_image(image.clone(), &settings)
+            .expect("Cannot produce density map image");
+        let settings = GenerateDensityMeshSettings {
+            points_separation: 16.0,
+            is_chunk: true,
+            keep_invisible_triangles: true,
+            ..Default::default()
+        };
+        let mesh = generate_densitymesh_from_points_cloud(vec![], map, settings)
+            .expect("Cannot produce density mesh");
+        apply_mesh_on_map(&mut image, &mesh);
+        (col, row, image)
+    })
+    .collect::<Vec<_>>();
+let mut image = DynamicImage::new_rgba8(width * count, height * count);
+for (col, row, subimage) in images {
+    image
+        .copy_from(&subimage, col * width, row * height)
+        .expect("Could not copy subimage");
+}
+image
+    .save("../resources/heightmap.vis.png")
+    .expect("Cannot save output image");
+```
 
 ## CLI
 #### Install / Update

@@ -200,6 +200,20 @@ fn make_app<'a, 'b>() -> App<'a, 'b> {
                         .takes_value(true)
                         .required(false),
                 )
+                .arg(
+                    Arg::with_name("is-chunk")
+                        .long("is-chunk")
+                        .help("Density map is a chunk, part of the bigger density map")
+                        .takes_value(false)
+                        .required(false),
+                )
+                .arg(
+                    Arg::with_name("keep-invisible-triangles")
+                        .long("keep-invisible-triangles")
+                        .help("Keep invisible triangles")
+                        .takes_value(false)
+                        .required(false),
+                )
                 .group(
                     ArgGroup::with_name("formats")
                         .arg("json")
@@ -303,12 +317,16 @@ fn run_app(matches: ArgMatches) {
             let extrude_size = matches
                 .value_of("extrude-size")
                 .map(|v| v.parse::<Scalar>().expect("Could not parse number"));
+            let is_chunk = matches.is_present("is-chunk");
+            let keep_invisible_triangles = matches.is_present("keep-invisible-triangles");
             let settings = GenerateDensityMeshSettings {
                 points_separation,
                 visibility_threshold,
                 steepness_threshold,
                 max_iterations,
                 extrude_size,
+                is_chunk,
+                keep_invisible_triangles,
             };
             if verbose {
                 println!("{:#?}", settings);
@@ -390,7 +408,7 @@ fn run_app(matches: ArgMatches) {
                 };
                 obj_exporter::export_to_file(&objects, output).expect("Cannot save mesh file");
             } else if png {
-                let mut image = image;
+                let mut image = DynamicImage::ImageRgba8(image.to_rgba());
                 apply_mesh_on_map(&mut image, &mesh);
                 image.save(output).expect("Cannot save output image");
             }
@@ -542,5 +560,49 @@ mod tests {
             "--density-source",
             "alpha",
         ]));
+    }
+
+    #[test]
+    fn test_chunks() {
+        let image = DynamicImage::ImageRgba8(
+            image::open("../resources/heightmap.png")
+                .expect("Cannot open file")
+                .to_rgba(),
+        );
+        let count = 4;
+        let width = image.width() / count;
+        let height = image.height() / count;
+        let images = (0..(count * count))
+            .into_iter()
+            .map(|i| {
+                let col = i % count;
+                let row = i / count;
+                let x = col * width;
+                let y = row * height;
+                let mut image = image.crop_imm(x, y, width + 1, height + 1);
+                let settings = GenerateDensityImageSettings::default();
+                let map = generate_densitymap_from_image(image.clone(), &settings)
+                    .expect("Cannot produce density map image");
+                let settings = GenerateDensityMeshSettings {
+                    points_separation: 16.0,
+                    is_chunk: true,
+                    keep_invisible_triangles: true,
+                    ..Default::default()
+                };
+                let mesh = generate_densitymesh_from_points_cloud(vec![], map, settings)
+                    .expect("Cannot produce density mesh");
+                apply_mesh_on_map(&mut image, &mesh);
+                (col, row, image)
+            })
+            .collect::<Vec<_>>();
+        let mut image = DynamicImage::new_rgba8(width * count, height * count);
+        for (col, row, subimage) in images {
+            image
+                .copy_from(&subimage, col * width, row * height)
+                .expect("Could not copy subimage");
+        }
+        image
+            .save("../resources/heightmap.vis.png")
+            .expect("Cannot save output image");
     }
 }

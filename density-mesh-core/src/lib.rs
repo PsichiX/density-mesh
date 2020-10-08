@@ -440,6 +440,10 @@ pub struct GenerateDensityMeshSettings {
     /// Optional extrude size.
     #[serde(default)]
     pub extrude_size: Option<Scalar>,
+    #[serde(default)]
+    pub is_chunk: bool,
+    #[serde(default)]
+    pub keep_invisible_triangles: bool,
 }
 
 impl Default for GenerateDensityMeshSettings {
@@ -450,6 +454,8 @@ impl Default for GenerateDensityMeshSettings {
             steepness_threshold: Self::default_steepness_threshold(),
             max_iterations: Self::default_max_iterations(),
             extrude_size: None,
+            is_chunk: false,
+            keep_invisible_triangles: false,
         }
     }
 }
@@ -578,15 +584,36 @@ impl DensityMeshGenerator {
         settings: GenerateDensityMeshSettings,
     ) -> Self {
         let scale = map.scale().max(1);
+        let w = map.unscaled_width();
+        let h = map.unscaled_height();
+        let hc = (w as Scalar / settings.points_separation) as usize + 1;
+        let vc = (h as Scalar / settings.points_separation) as usize + 1;
+        if settings.is_chunk {
+            points.push(Coord::new(0.0, 0.0));
+            points.push(Coord::new((w - 1) as _, 0.0));
+            points.push(Coord::new((w - 1) as _, (h - 1) as _));
+            points.push(Coord::new(0.0, (h - 1) as _));
+            for i in 1..hc {
+                let v = w as Scalar * i as Scalar / hc as Scalar;
+                points.push(Coord::new(v, 0.0));
+                points.push(Coord::new(v, (h - 1) as _));
+            }
+            for i in 1..vc {
+                let v = h as Scalar * i as Scalar / vc as Scalar;
+                points.push(Coord::new(0.0, v));
+                points.push(Coord::new((w - 1) as _, v));
+            }
+        }
         let remaining = map
             .value_steepness_iter()
-            .map(|(x, y, v, s)| {
-                let x = (x * scale) as Scalar;
-                let y = (y * scale) as Scalar;
-                (Coord::new(x, y), v, s)
-            })
-            .filter(|(_, v, s)| {
-                *v > settings.visibility_threshold && *s > settings.steepness_threshold
+            .filter_map(|(x, y, v, s)| {
+                if v > settings.visibility_threshold && s > settings.steepness_threshold {
+                    let x = (x * scale) as Scalar;
+                    let y = (y * scale) as Scalar;
+                    Some((Coord::new(x, y), v, s))
+                } else {
+                    None
+                }
             })
             .collect::<Vec<_>>();
         let progress_limit = remaining.len();
@@ -736,26 +763,36 @@ impl DensityMeshGenerator {
                 points,
                 progress_limit,
             } => {
-                let triangles = triangulate(&points)?
-                    .into_iter()
-                    .filter(|t| {
-                        is_triangle_visible(points[t.a], points[t.b], points[t.c], &map, &settings)
-                    })
-                    .collect::<Vec<_>>();
-                if let Some(size) = settings.extrude_size {
-                    Ok(Self::Extrude {
-                        points,
-                        triangles,
-                        size,
-                        progress_limit,
-                    })
-                } else {
-                    Ok(Self::BakeFinalMesh {
-                        points,
-                        triangles,
-                        progress_limit,
-                    })
+                let mut triangles = triangulate(&points)?;
+                if !settings.keep_invisible_triangles {
+                    triangles = triangles
+                        .into_iter()
+                        .filter(|t| {
+                            is_triangle_visible(
+                                points[t.a],
+                                points[t.b],
+                                points[t.c],
+                                &map,
+                                &settings,
+                            )
+                        })
+                        .collect::<Vec<_>>();
                 }
+                if let Some(size) = settings.extrude_size {
+                    if !settings.keep_invisible_triangles {
+                        return Ok(Self::Extrude {
+                            points,
+                            triangles,
+                            size,
+                            progress_limit,
+                        });
+                    }
+                }
+                Ok(Self::BakeFinalMesh {
+                    points,
+                    triangles,
+                    progress_limit,
+                })
             }
             Self::Extrude {
                 mut points,
