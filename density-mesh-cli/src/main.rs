@@ -1,6 +1,7 @@
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
 use density_mesh_core::{
-    generate_densitymesh_from_points_cloud, Coord, DensityMesh, GenerateDensityMeshSettings, Scalar,
+    generate_densitymesh_from_points_cloud, generate_densitymesh_from_points_cloud_tracked, Coord,
+    DensityMesh, GenerateDensityMeshSettings, Scalar,
 };
 use density_mesh_image::{
     generate_densitymap_from_image, generate_densitymap_image, GenerateDensityImageSettings,
@@ -211,7 +212,7 @@ fn make_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-fn run_app<'a>(matches: ArgMatches<'a>) {
+fn run_app(matches: ArgMatches) {
     match matches.subcommand() {
         ("image", Some(matches)) => {
             let input = matches.value_of("input").unwrap();
@@ -312,8 +313,24 @@ fn run_app<'a>(matches: ArgMatches<'a>) {
             if verbose {
                 println!("{:#?}", settings);
             }
-            let mesh = generate_densitymesh_from_points_cloud(vec![], map, &settings)
-                .expect("Cannot produce density mesh");
+            let mesh = if verbose {
+                generate_densitymesh_from_points_cloud_tracked(
+                    vec![],
+                    map,
+                    settings,
+                    |current, limit, percentage| {
+                        println!(
+                            "Progress: {}% ({} / {})",
+                            (percentage * 100.0).max(0.0).min(100.0),
+                            current,
+                            limit
+                        );
+                    },
+                )
+            } else {
+                generate_densitymesh_from_points_cloud(vec![], map, settings)
+            }
+            .expect("Cannot produce density mesh");
             if json {
                 let contents = serde_json::to_string(&mesh).expect("Could not serialize JSON mesh");
                 write(output, contents).expect("Could not save mesh file");
@@ -449,81 +466,81 @@ mod tests {
 
     #[test]
     fn test_data_image() {
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "image",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.data.png",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "image",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.steepness.png",
-        //     "-s",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "mesh",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.json",
-        //     "--json",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "mesh",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.pretty.json",
-        //     "--json-pretty",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "mesh",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.yaml",
-        //     "--yaml",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "mesh",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.obj",
-        //     "--obj",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "mesh",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.vis.png",
-        //     "--png",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "image",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.data.png",
+            "--density-source",
+            "alpha",
+        ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "image",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.steepness.png",
+            "-s",
+            "--density-source",
+            "alpha",
+        ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "mesh",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.json",
+            "--json",
+            "--density-source",
+            "alpha",
+        ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "mesh",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.pretty.json",
+            "--json-pretty",
+            "--density-source",
+            "alpha",
+        ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "mesh",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.yaml",
+            "--yaml",
+            "--density-source",
+            "alpha",
+        ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "mesh",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.obj",
+            "--obj",
+            "--density-source",
+            "alpha",
+        ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "mesh",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.vis.png",
+            "--png",
+            "--density-source",
+            "alpha",
+        ]));
     }
 }

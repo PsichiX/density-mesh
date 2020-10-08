@@ -1,9 +1,25 @@
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     ops::{Add, Div, Mul, Neg, Sub},
 };
 use triangulation::{Delaunay, Point};
+
+#[cfg(feature = "parallel")]
+macro_rules! into_iter {
+    ($v:expr) => {
+        $v.into_par_iter()
+    };
+}
+
+#[cfg(not(feature = "parallel"))]
+macro_rules! into_iter {
+    ($v:expr) => {
+        $v.into_iter()
+    };
+}
 
 /// Scalar type.
 pub type Scalar = f32;
@@ -407,7 +423,7 @@ impl DensityMap {
 }
 
 /// Settings of density mesh generation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GenerateDensityMeshSettings {
     /// Minimal points separation.
     #[serde(default = "GenerateDensityMeshSettings::default_points_separation")]
@@ -457,12 +473,16 @@ impl GenerateDensityMeshSettings {
 }
 
 /// Error thrown during density mesh generation.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum GenerateDensityMeshError {
     /// Density map error.
     DensityMap(DensityMapError),
+    /// Trying to process unitialized generator.
+    UninitializedGenerator,
     /// Failed points triangulation.
     FailedTriangulation,
+    /// Trying to process aready completed generation.
+    AlreadyCompleted(DensityMesh),
 }
 
 /// Density mesh.
@@ -472,6 +492,297 @@ pub struct DensityMesh {
     pub points: Vec<Coord>,
     /// List of triangles.
     pub triangles: Vec<Triangle>,
+}
+
+/// Density mesh generator state object.
+/// It allows you to process mesh generation in steps and track progress or cancel generation in
+/// the middle of the process.
+///
+/// # Examples
+/// ```
+/// use density_mesh_core::*;
+///
+/// let map = DensityMap::new(2, 2, 1, vec![1, 2, 3, 1]).unwrap();
+/// let settings = GenerateDensityMeshSettings {
+///     points_separation: 0.5,
+///     visibility_threshold: 0.0,
+///     steepness_threshold: 0.0,
+///     ..Default::default()
+/// };
+/// let mut generator = DensityMeshGenerator::new(vec![], map, settings);
+/// loop {
+///     match generator.process().unwrap().get_mesh_or_self() {
+///         Ok(mesh) => {
+///             println!("{:#?}", mesh);
+///             return;
+///         },
+///         Err(gen) => generator = gen,
+///     }
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum DensityMeshGenerator {
+    Uninitialized,
+    FindingPoints {
+        settings: GenerateDensityMeshSettings,
+        map: DensityMap,
+        tries: usize,
+        /// [(coordinate, value, steepness)]
+        remaining: Vec<(Coord, Scalar, Scalar)>,
+        points: Vec<Coord>,
+        progress_current: usize,
+        progress_limit: usize,
+    },
+    Triangulate {
+        settings: GenerateDensityMeshSettings,
+        map: DensityMap,
+        points: Vec<Coord>,
+        progress_limit: usize,
+    },
+    Extrude {
+        points: Vec<Coord>,
+        triangles: Vec<Triangle>,
+        size: Scalar,
+        progress_limit: usize,
+    },
+    BakeFinalMesh {
+        points: Vec<Coord>,
+        triangles: Vec<Triangle>,
+        progress_limit: usize,
+    },
+    Completed {
+        mesh: DensityMesh,
+        progress_limit: usize,
+    },
+}
+
+impl Default for DensityMeshGenerator {
+    fn default() -> Self {
+        Self::Uninitialized
+    }
+}
+
+impl DensityMeshGenerator {
+    /// Creates new generator instance. Check struct documentation for examples.
+    ///
+    /// # Arguments
+    /// * `points` - List of initial points.
+    /// * `map` - Density map.
+    /// * `settings` - Density mesh generation settings.
+    ///
+    /// # Returns
+    /// New generator instance.
+    pub fn new(
+        mut points: Vec<Coord>,
+        map: DensityMap,
+        settings: GenerateDensityMeshSettings,
+    ) -> Self {
+        let scale = map.scale().max(1);
+        let remaining = map
+            .value_steepness_iter()
+            .map(|(x, y, v, s)| {
+                let x = (x * scale) as Scalar;
+                let y = (y * scale) as Scalar;
+                (Coord::new(x, y), v, s)
+            })
+            .filter(|(_, v, s)| {
+                *v > settings.visibility_threshold && *s > settings.steepness_threshold
+            })
+            .collect::<Vec<_>>();
+        let progress_limit = remaining.len();
+        points.reserve(progress_limit);
+        let tries = settings.max_iterations;
+        Self::FindingPoints {
+            settings,
+            map,
+            tries,
+            remaining,
+            points,
+            progress_current: 0,
+            progress_limit,
+        }
+    }
+
+    /// Get processing progress.
+    ///
+    /// # Returns
+    /// `(current, limit, percentage)`
+    pub fn progress(&self) -> (usize, usize, Scalar) {
+        match self {
+            Self::Uninitialized => (0, 0, 0.0),
+            Self::FindingPoints {
+                progress_current,
+                progress_limit,
+                ..
+            } => {
+                let current = *progress_limit - *progress_current;
+                (
+                    current,
+                    *progress_limit,
+                    current as Scalar / *progress_limit as Scalar,
+                )
+            }
+            Self::Triangulate { progress_limit, .. } => (*progress_limit, *progress_limit, 1.0),
+            Self::Extrude { progress_limit, .. } => (*progress_limit, *progress_limit, 1.0),
+            Self::BakeFinalMesh { progress_limit, .. } => (*progress_limit, *progress_limit, 1.0),
+            Self::Completed { progress_limit, .. } => (*progress_limit, *progress_limit, 1.0),
+        }
+    }
+
+    /// Check if mesh generation is done.
+    ///
+    /// # Returns
+    /// True if process is completed.
+    pub fn is_done(&self) -> bool {
+        match self {
+            Self::Completed { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// Tries to get inner generated mesh when ready, otherwise gets itself.
+    /// This function consumes generator!
+    ///
+    /// # Returns
+    /// Result with mesh (Ok) when completed, or self (Err) when still processing.
+    ///
+    /// # Examples
+    /// ```
+    /// use density_mesh_core::*;
+    ///
+    /// let map = DensityMap::new(2, 2, 1, vec![1, 2, 3, 1]).unwrap();
+    /// let settings = GenerateDensityMeshSettings {
+    ///     points_separation: 0.5,
+    ///     visibility_threshold: 0.0,
+    ///     steepness_threshold: 0.0,
+    ///     ..Default::default()
+    /// };
+    /// let mut generator = DensityMeshGenerator::new(vec![], map, settings);
+    /// match generator.get_mesh_or_self() {
+    ///     Ok(mesh) => println!("{:#?}", mesh),
+    ///     Err(gen) => generator = gen,
+    /// }
+    /// ```
+    pub fn get_mesh_or_self(self) -> Result<DensityMesh, Self> {
+        match self {
+            Self::Completed { mesh, .. } => Ok(mesh),
+            gen => Err(gen),
+        }
+    }
+
+    /// Process mesh generation. Check struct documentation for examples.
+    /// This function consumes generator!
+    ///
+    /// # Returns
+    /// Result with self when processing step was successful, or error.
+    pub fn process(self) -> Result<Self, GenerateDensityMeshError> {
+        match self {
+            Self::Uninitialized => Err(GenerateDensityMeshError::UninitializedGenerator),
+            Self::FindingPoints {
+                settings,
+                map,
+                mut tries,
+                mut remaining,
+                mut points,
+                mut progress_current,
+                progress_limit,
+            } => {
+                if !points.is_empty() {
+                    let mds = settings.points_separation * settings.points_separation;
+                    remaining = into_iter!(remaining)
+                        .filter(|(p1, _, _)| {
+                            points.iter().all(|p2| (*p2 - *p1).sqr_magnitude() > mds)
+                        })
+                        .collect::<Vec<_>>();
+                    if remaining.is_empty() {
+                        return Ok(Self::Triangulate {
+                            settings,
+                            map,
+                            points,
+                            progress_limit,
+                        });
+                    }
+                }
+                if let Some((point, _, _)) = remaining
+                    .iter()
+                    .max_by(|a, b| a.2.partial_cmp(&b.2).unwrap())
+                {
+                    points.push(*point);
+                    tries = settings.max_iterations.max(1);
+                } else if tries > 0 {
+                    tries -= 1;
+                } else {
+                    return Ok(Self::Triangulate {
+                        settings,
+                        map,
+                        points,
+                        progress_limit,
+                    });
+                }
+                progress_current = remaining.len();
+                Ok(Self::FindingPoints {
+                    settings,
+                    map,
+                    tries,
+                    remaining,
+                    points,
+                    progress_current,
+                    progress_limit,
+                })
+            }
+            Self::Triangulate {
+                settings,
+                map,
+                points,
+                progress_limit,
+            } => {
+                let triangles = triangulate(&points)?
+                    .into_iter()
+                    .filter(|t| {
+                        is_triangle_visible(points[t.a], points[t.b], points[t.c], &map, &settings)
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(size) = settings.extrude_size {
+                    Ok(Self::Extrude {
+                        points,
+                        triangles,
+                        size,
+                        progress_limit,
+                    })
+                } else {
+                    Ok(Self::BakeFinalMesh {
+                        points,
+                        triangles,
+                        progress_limit,
+                    })
+                }
+            }
+            Self::Extrude {
+                mut points,
+                mut triangles,
+                size,
+                progress_limit,
+            } => {
+                let (p, t) = extrude(&points, &triangles, size);
+                points.extend(p);
+                triangles.extend(t);
+                Ok(Self::BakeFinalMesh {
+                    points,
+                    triangles,
+                    progress_limit,
+                })
+            }
+            Self::BakeFinalMesh {
+                points,
+                triangles,
+                progress_limit,
+            } => Ok(Self::Completed {
+                mesh: bake_final_mesh(points, triangles),
+                progress_limit,
+            }),
+            Self::Completed { mesh, .. } => Err(GenerateDensityMeshError::AlreadyCompleted(mesh)),
+        }
+    }
 }
 
 /// Generate density mesh from points cloud.
@@ -496,75 +807,98 @@ pub struct DensityMesh {
 ///     ..Default::default()
 /// };
 /// assert_eq!(
-///     generate_densitymesh_from_points_cloud(vec![], map, &settings),
+///     generate_densitymesh_from_points_cloud(vec![], map, settings),
 ///     Ok(DensityMesh {
 ///         points: vec![
 ///             Coord { x: 0.0, y: 1.0 },
 ///             Coord { x: 0.0, y: 0.0 },
-///             Coord { x: 1.0, y: 0.0 },
 ///             Coord { x: 1.0, y: 1.0 },
+///             Coord { x: 1.0, y: 0.0 },
 ///         ],
 ///         triangles: vec![
 ///             Triangle { a: 0, b: 2, c: 1 },
-///             Triangle { a: 0, b: 3, c: 2 },
+///             Triangle { a: 2, b: 3, c: 1 },
 ///         ],
 ///     }),
 /// );
 /// ```
 pub fn generate_densitymesh_from_points_cloud(
-    mut points: Vec<Coord>,
+    points: Vec<Coord>,
     map: DensityMap,
-    settings: &GenerateDensityMeshSettings,
+    settings: GenerateDensityMeshSettings,
 ) -> Result<DensityMesh, GenerateDensityMeshError> {
-    let scale = map.scale().max(1);
-    let mut remaining = map
-        .value_steepness_iter()
-        .map(|(x, y, v, s)| {
-            let x = (x * scale) as Scalar;
-            let y = (y * scale) as Scalar;
-            (Coord::new(x, y), v, s)
-        })
-        .filter(|(_, v, s)| *v > settings.visibility_threshold && *s > settings.steepness_threshold)
-        .collect::<Vec<_>>();
-    points.reserve(remaining.len());
-    let mds = settings.points_separation * settings.points_separation;
-    let mut tries = settings.max_iterations.max(1);
+    let mut generator = DensityMeshGenerator::new(points, map, settings);
     loop {
-        if !points.is_empty() {
-            remaining
-                .retain(|(p1, _, _)| points.iter().all(|p2| (*p2 - *p1).sqr_magnitude() > mds));
-        }
-        if let Some((index, (point, _, _))) = remaining
-            .iter()
-            .enumerate()
-            .max_by(|a, b| (a.1).2.partial_cmp(&(b.1).2).unwrap())
-        {
-            points.push(*point);
-            remaining.swap_remove(index);
-            tries = settings.max_iterations.max(1);
-        } else {
-            if tries > 0 {
-                tries -= 1;
-            } else {
-                break;
-            }
-        }
-        if remaining.is_empty() {
-            break;
+        match generator.process()?.get_mesh_or_self() {
+            Ok(mesh) => return Ok(mesh),
+            Err(gen) => generator = gen,
         }
     }
-    let mut triangles = triangulate(&points)?
-        .iter()
-        .filter(|t| is_triangle_visible(points[t.a], points[t.b], points[t.c], &map, settings))
-        .copied()
-        .collect::<Vec<_>>();
-    if let Some(size) = settings.extrude_size {
-        let (p, t) = extrude(&points, &triangles, size);
-        points.extend(p);
-        triangles.extend(t);
-        Ok(bake_final_mesh(points, triangles))
-    } else {
-        Ok(bake_final_mesh(points, triangles))
+}
+
+/// Generate density mesh from points cloud, with callback that gets called on progress update.
+///
+/// # Arguments
+/// * `points` - List of initial points.
+/// * `map` - Density map.
+/// * `settings` - Density mesh generation settings.
+/// * `f` - Callback with progress arguments: `(current, limit, percentage)`.
+///
+/// # Returns
+/// Density mesh or error.
+///
+/// # Examples
+/// ```
+/// use density_mesh_core::*;
+///
+/// let map = DensityMap::new(2, 2, 1, vec![1, 2, 3, 1]).unwrap();
+/// let settings = GenerateDensityMeshSettings {
+///     points_separation: 0.5,
+///     visibility_threshold: 0.0,
+///     steepness_threshold: 0.0,
+///     ..Default::default()
+/// };
+/// assert_eq!(
+///     generate_densitymesh_from_points_cloud_tracked(
+///         vec![],
+///         map,
+///         settings,
+///         |c, l, p| println!("Progress: {}% ({} / {})", p * 100.0, c, l),
+///     ),
+///     Ok(DensityMesh {
+///         points: vec![
+///             Coord { x: 0.0, y: 1.0 },
+///             Coord { x: 0.0, y: 0.0 },
+///             Coord { x: 1.0, y: 1.0 },
+///             Coord { x: 1.0, y: 0.0 },
+///         ],
+///         triangles: vec![
+///             Triangle { a: 0, b: 2, c: 1 },
+///             Triangle { a: 2, b: 3, c: 1 },
+///         ],
+///     }),
+/// );
+/// ```
+pub fn generate_densitymesh_from_points_cloud_tracked<F>(
+    points: Vec<Coord>,
+    map: DensityMap,
+    settings: GenerateDensityMeshSettings,
+    mut f: F,
+) -> Result<DensityMesh, GenerateDensityMeshError>
+where
+    F: FnMut(usize, usize, Scalar),
+{
+    let mut generator = DensityMeshGenerator::new(points, map, settings);
+    let (c, l, p) = generator.progress();
+    f(c, l, p);
+    loop {
+        let gen = generator.process()?;
+        let (c, l, p) = gen.progress();
+        f(c, l, p);
+        match gen.get_mesh_or_self() {
+            Ok(mesh) => return Ok(mesh),
+            Err(gen) => generator = gen,
+        }
     }
 }
 
@@ -606,7 +940,7 @@ fn is_triangle_visible(
             let p = Coord::new(x as _, y as _);
             if (p - a).dot(nab) >= 0.0 && (p - b).dot(nbc) >= 0.0 && (p - c).dot(nca) >= 0.0 {
                 samples += 1;
-                if is_point_visible(p, map, settings) {
+                if is_point_visible((x, y), map, settings) {
                     count += 1;
                 }
             }
@@ -615,8 +949,12 @@ fn is_triangle_visible(
     count as Scalar / samples as Scalar > 0.5
 }
 
-fn is_point_visible(p: Coord, map: &DensityMap, settings: &GenerateDensityMeshSettings) -> bool {
-    map.value_at_point((p.x as _, p.y as _)) > settings.visibility_threshold
+fn is_point_visible(
+    pos: (isize, isize),
+    map: &DensityMap,
+    settings: &GenerateDensityMeshSettings,
+) -> bool {
+    map.value_at_point(pos) > settings.visibility_threshold
 }
 
 fn extrude(points: &[Coord], triangles: &[Triangle], size: Scalar) -> (Vec<Coord>, Vec<Triangle>) {
