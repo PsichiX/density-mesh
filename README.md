@@ -74,6 +74,10 @@ image
     .expect("Cannot save output image");
 ```
 
+Result of working with chunks might look like that:
+
+![image chunks](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/heightmap.vis.png)
+
 ## CLI
 #### Install / Update
 ```bash
