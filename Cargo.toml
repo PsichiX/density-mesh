@@ -3,4 +3,5 @@ members = [
   "density-mesh-core",
   "density-mesh-image",
   "density-mesh-cli",
+  "density-mesh-playground",
 ]

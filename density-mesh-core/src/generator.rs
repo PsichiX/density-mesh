@@ -1,9 +1,12 @@
 use crate::{
     coord::Coord,
     map::DensityMap,
-    mesh::{settings::GenerateDensityMeshSettings, DensityMesh, GenerateDensityMeshError},
+    mesh::{
+        settings::{GenerateDensityMeshSettings, PointsSeparation},
+        DensityMesh, GenerateDensityMeshError,
+    },
     triangle::Triangle,
-    utils::{bake_final_mesh, extrude, is_triangle_visible, triangulate},
+    utils::{bake_final_mesh, extrude, is_triangle_visible, lerp, triangulate},
     Scalar,
 };
 #[cfg(feature = "parallel")]
@@ -34,7 +37,7 @@ macro_rules! into_iter {
 ///
 /// let map = DensityMap::new(2, 2, 1, vec![1, 2, 3, 1]).unwrap();
 /// let settings = GenerateDensityMeshSettings {
-///     points_separation: 0.5,
+///     points_separation: 0.5.into(),
 ///     visibility_threshold: 0.0,
 ///     steepness_threshold: 0.0,
 ///     ..Default::default()
@@ -57,8 +60,8 @@ pub enum DensityMeshGenerator {
         settings: GenerateDensityMeshSettings,
         map: DensityMap,
         tries: usize,
-        /// [(coordinate, value, steepness)]
-        remaining: Vec<(Coord, Scalar, Scalar)>,
+        /// [(coordinate, value, steepness, local point separation squared)]
+        remaining: Vec<(Coord, Scalar, Scalar, Scalar)>,
         points: Vec<Coord>,
         progress_current: usize,
         progress_limit: usize,
@@ -110,9 +113,9 @@ impl DensityMeshGenerator {
         let scale = map.scale().max(1);
         let w = map.unscaled_width();
         let h = map.unscaled_height();
-        let hc = (w as Scalar / settings.points_separation) as usize + 1;
-        let vc = (h as Scalar / settings.points_separation) as usize + 1;
         if settings.is_chunk {
+            let hc = (w as Scalar / settings.points_separation.maximum()) as usize + 1;
+            let vc = (h as Scalar / settings.points_separation.maximum()) as usize + 1;
             points.push(Coord::new(0.0, 0.0));
             points.push(Coord::new((w - 1) as _, 0.0));
             points.push(Coord::new((w - 1) as _, (h - 1) as _));
@@ -134,7 +137,14 @@ impl DensityMeshGenerator {
                 if v > settings.visibility_threshold && s > settings.steepness_threshold {
                     let x = (x * scale) as Scalar;
                     let y = (y * scale) as Scalar;
-                    Some((Coord::new(x, y), v, s))
+                    let lpss = match settings.points_separation {
+                        PointsSeparation::Constant(v) => v * v,
+                        PointsSeparation::SteepnessMapping(f, t) => {
+                            let v = lerp(s, t, f);
+                            v * v
+                        }
+                    };
+                    Some((Coord::new(x, y), v, s, lpss))
                 } else {
                     None
                 }
@@ -203,7 +213,7 @@ impl DensityMeshGenerator {
     ///
     /// let map = DensityMap::new(2, 2, 1, vec![1, 2, 3, 1]).unwrap();
     /// let settings = GenerateDensityMeshSettings {
-    ///     points_separation: 0.5,
+    ///     points_separation: 0.5.into(),
     ///     visibility_threshold: 0.0,
     ///     steepness_threshold: 0.0,
     ///     ..Default::default()
@@ -239,10 +249,9 @@ impl DensityMeshGenerator {
                 progress_limit,
             } => {
                 if !points.is_empty() {
-                    let mds = settings.points_separation * settings.points_separation;
                     remaining = into_iter!(remaining)
-                        .filter(|(p1, _, _)| {
-                            points.iter().all(|p2| (*p2 - *p1).sqr_magnitude() > mds)
+                        .filter(|(p1, _, _, lpss)| {
+                            points.iter().all(|p2| (*p2 - *p1).sqr_magnitude() > *lpss)
                         })
                         .collect::<Vec<_>>();
                     if remaining.is_empty() {
@@ -254,7 +263,7 @@ impl DensityMeshGenerator {
                         });
                     }
                 }
-                if let Some((point, _, _)) = remaining
+                if let Some((point, _, _, _)) = remaining
                     .iter()
                     .max_by(|a, b| a.2.partial_cmp(&b.2).unwrap())
                 {

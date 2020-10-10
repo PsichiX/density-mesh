@@ -25,7 +25,7 @@ use triangulation::{Delaunay, Point};
 ///
 /// let map = DensityMap::new(2, 2, 1, vec![1, 2, 3, 1]).unwrap();
 /// let settings = GenerateDensityMeshSettings {
-///     points_separation: 0.5,
+///     points_separation: 0.5.into(),
 ///     visibility_threshold: 0.0,
 ///     steepness_threshold: 0.0,
 ///     ..Default::default()
@@ -77,7 +77,7 @@ pub fn generate_densitymesh_from_points_cloud(
 ///
 /// let map = DensityMap::new(2, 2, 1, vec![1, 2, 3, 1]).unwrap();
 /// let settings = GenerateDensityMeshSettings {
-///     points_separation: 0.5,
+///     points_separation: 0.5.into(),
 ///     visibility_threshold: 0.0,
 ///     steepness_threshold: 0.0,
 ///     ..Default::default()
@@ -250,4 +250,9 @@ pub(crate) fn bake_final_mesh(points: Vec<Coord>, mut triangles: Vec<Triangle>) 
         points: new_points,
         triangles,
     }
+}
+
+#[inline]
+pub(crate) fn lerp(value: Scalar, from: Scalar, to: Scalar) -> Scalar {
+    from + (to - from) * value.max(0.0).min(1.0)
 }
