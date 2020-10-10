@@ -1,12 +1,6 @@
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
-use density_mesh_core::{
-    generate_densitymesh_from_points_cloud, generate_densitymesh_from_points_cloud_tracked, Coord,
-    DensityMesh, GenerateDensityMeshSettings, Scalar,
-};
-use density_mesh_image::{
-    generate_densitymap_from_image, generate_densitymap_image, GenerateDensityImageSettings,
-    ImageDensitySource,
-};
+use density_mesh_core::prelude::*;
+use density_mesh_image::prelude::*;
 use image::{DynamicImage, GenericImage, GenericImageView};
 use obj_exporter::{Geometry, ObjSet, Object, Primitive, Shape, TVertex, Vertex};
 use std::fs::write;
