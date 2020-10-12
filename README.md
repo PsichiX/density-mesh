@@ -117,7 +117,7 @@ image
 
 With that we have added two solid rectangles and result looks like:
 
-![image live](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/heightmap.live.png)
+![image live](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/heightmap.vis.png)
 
 ## CLI
 #### Install / Update
