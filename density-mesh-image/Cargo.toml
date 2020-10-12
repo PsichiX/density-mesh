@@ -15,5 +15,5 @@ parallel = ["density-mesh-core/parallel"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-density-mesh-core = { version = "1.0", path = "../density-mesh-core" }
+density-mesh-core = { version = "1.3", path = "../density-mesh-core" }
 image = { default-features = false, features = ["png"], version = "0.23" }
