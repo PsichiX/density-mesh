@@ -123,8 +123,38 @@ pub fn generate_densitymap_from_image(
     }
 }
 
+/// Generate image from density map.
+///
+/// # Arguments
+/// * `map` - Input density map.
+/// * `steepness` - If true produce steepness image, if false produce density image.
+///
+/// # Returns
+/// Grayscale image.
+pub fn generate_image_from_densitymap(map: &DensityMap, steepness: bool) -> DynamicImage {
+    DynamicImage::ImageLuma8(
+        GrayImage::from_raw(
+            map.unscaled_width() as _,
+            map.unscaled_height() as _,
+            if steepness {
+                map.steepness()
+                    .iter()
+                    .map(|v| (v * 255.0) as u8)
+                    .collect::<Vec<_>>()
+            } else {
+                map.values()
+                    .iter()
+                    .map(|v| (v * 255.0) as u8)
+                    .collect::<Vec<_>>()
+            },
+        )
+        .unwrap(),
+    )
+}
+
 pub mod prelude {
-    pub use crate::generate_densitymap_from_image;
-    pub use crate::generate_densitymap_image;
-    pub use crate::settings::*;
+    pub use crate::{
+        generate_densitymap_from_image, generate_densitymap_image, generate_image_from_densitymap,
+        settings::*,
+    };
 }

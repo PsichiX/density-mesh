@@ -30,29 +30,6 @@ macro_rules! into_iter {
 /// Density mesh generator state object.
 /// It allows you to process mesh generation in steps and track progress or cancel generation in
 /// the middle of the process.
-///
-/// # Examples
-/// ```
-/// use density_mesh_core::prelude::*;
-///
-/// let map = DensityMap::new(2, 2, 1, vec![1, 2, 3, 1]).unwrap();
-/// let settings = GenerateDensityMeshSettings {
-///     points_separation: 0.5.into(),
-///     visibility_threshold: 0.0,
-///     steepness_threshold: 0.0,
-///     ..Default::default()
-/// };
-/// let mut generator = DensityMeshGenerator::new(vec![], map, settings);
-/// loop {
-///     match generator.process().unwrap().get_mesh_or_self() {
-///         Ok(mesh) => {
-///             println!("{:#?}", mesh);
-///             return;
-///         },
-///         Err(gen) => generator = gen,
-///     }
-/// }
-/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DensityMeshGenerator {
     Uninitialized,
@@ -231,11 +208,33 @@ impl DensityMeshGenerator {
         }
     }
 
-    /// Process mesh generation. Check struct documentation for examples.
-    /// This function consumes generator!
+    /// Process mesh generation. This function consumes generator!
     ///
     /// # Returns
-    /// Result with self when processing step was successful, or error.
+    /// Self if ok or mesh generation error.
+    ///
+    /// # Examples
+    /// ```
+    /// use density_mesh_core::prelude::*;
+    ///
+    /// let map = DensityMap::new(2, 2, 1, vec![1, 2, 3, 1]).unwrap();
+    /// let settings = GenerateDensityMeshSettings {
+    ///     points_separation: 0.5.into(),
+    ///     visibility_threshold: 0.0,
+    ///     steepness_threshold: 0.0,
+    ///     ..Default::default()
+    /// };
+    /// let mut generator = DensityMeshGenerator::new(vec![], map, settings);
+    /// loop {
+    ///     match generator.process().unwrap().get_mesh_or_self() {
+    ///         Ok(mesh) => {
+    ///             println!("{:#?}", mesh);
+    ///             return;
+    ///         },
+    ///         Err(gen) => generator = gen,
+    ///     }
+    /// }
+    /// ```
     pub fn process(self) -> Result<Self, GenerateDensityMeshError> {
         match self {
             Self::Uninitialized => Err(GenerateDensityMeshError::UninitializedGenerator),
@@ -351,6 +350,106 @@ impl DensityMeshGenerator {
                 progress_limit,
             }),
             Self::Completed { mesh, .. } => Err(GenerateDensityMeshError::AlreadyCompleted(mesh)),
+        }
+    }
+
+    /// Process mesh generation until it returns either mesh or error.
+    /// This function consumes generator!
+    ///
+    /// # Returns
+    /// Density mesh or mesh generation error.
+    ///
+    /// # Examples
+    /// ```
+    /// use density_mesh_core::prelude::*;
+    ///
+    /// let map = DensityMap::new(2, 2, 1, vec![1, 2, 3, 1]).unwrap();
+    /// let settings = GenerateDensityMeshSettings {
+    ///     points_separation: 0.5.into(),
+    ///     visibility_threshold: 0.0,
+    ///     steepness_threshold: 0.0,
+    ///     ..Default::default()
+    /// };
+    /// assert_eq!(
+    ///     DensityMeshGenerator::new(vec![], map, settings).process_wait(),
+    ///     Ok(DensityMesh {
+    ///         points: vec![
+    ///             Coord { x: 0.0, y: 1.0 },
+    ///             Coord { x: 0.0, y: 0.0 },
+    ///             Coord { x: 1.0, y: 1.0 },
+    ///             Coord { x: 1.0, y: 0.0 },
+    ///         ],
+    ///         triangles: vec![
+    ///             Triangle { a: 0, b: 2, c: 1 },
+    ///             Triangle { a: 2, b: 3, c: 1 },
+    ///         ],
+    ///     }),
+    /// );
+    /// ```
+    pub fn process_wait(mut self) -> Result<DensityMesh, GenerateDensityMeshError> {
+        loop {
+            match self.process()?.get_mesh_or_self() {
+                Ok(mesh) => return Ok(mesh),
+                Err(gen) => self = gen,
+            }
+        }
+    }
+
+    /// Process mesh generation with callback that gets called on progress update
+    /// until it returns either mesh or error.
+    /// This function consumes generator!
+    ///
+    /// # Arguments
+    /// * `f` - Callback with progress arguments: `(current, limit, percentage)`.
+    ///
+    /// # Returns
+    /// Density mesh or mesh generation error.
+    ///
+    /// # Examples
+    /// ```
+    /// use density_mesh_core::prelude::*;
+    ///
+    /// let map = DensityMap::new(2, 2, 1, vec![1, 2, 3, 1]).unwrap();
+    /// let settings = GenerateDensityMeshSettings {
+    ///     points_separation: 0.5.into(),
+    ///     visibility_threshold: 0.0,
+    ///     steepness_threshold: 0.0,
+    ///     ..Default::default()
+    /// };
+    /// assert_eq!(
+    ///     DensityMeshGenerator::new(vec![], map, settings)
+    ///         .process_wait_tracked(|c, l, p| println!("Progress: {}% ({} / {})", p * 100.0, c, l)),
+    ///     Ok(DensityMesh {
+    ///         points: vec![
+    ///             Coord { x: 0.0, y: 1.0 },
+    ///             Coord { x: 0.0, y: 0.0 },
+    ///             Coord { x: 1.0, y: 1.0 },
+    ///             Coord { x: 1.0, y: 0.0 },
+    ///         ],
+    ///         triangles: vec![
+    ///             Triangle { a: 0, b: 2, c: 1 },
+    ///             Triangle { a: 2, b: 3, c: 1 },
+    ///         ],
+    ///     }),
+    /// );
+    /// ```
+    pub fn process_wait_tracked<F>(
+        mut self,
+        mut f: F,
+    ) -> Result<DensityMesh, GenerateDensityMeshError>
+    where
+        F: FnMut(usize, usize, Scalar),
+    {
+        let (c, l, p) = self.progress();
+        f(c, l, p);
+        loop {
+            let gen = self.process()?;
+            let (c, l, p) = gen.progress();
+            f(c, l, p);
+            match gen.get_mesh_or_self() {
+                Ok(mesh) => return Ok(mesh),
+                Err(gen) => self = gen,
+            }
         }
     }
 }

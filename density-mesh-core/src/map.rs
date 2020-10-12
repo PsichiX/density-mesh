@@ -10,7 +10,7 @@ pub enum DensityMapError {
 }
 
 /// Density map that contains density data and steepness per pixel.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DensityMap {
     width: usize,
     height: usize,
@@ -186,6 +186,96 @@ impl DensityMap {
             .zip(self.steepness.iter())
             .enumerate()
             .map(move |(i, (v, s))| (i % self.width, i / self.width, *v, *s))
+    }
+
+    pub fn crop(&self, col: usize, row: usize, width: usize, height: usize) -> Self {
+        let fx = col.min(self.width);
+        let fy = row.min(self.height);
+        let tx = (col + width).min(self.width);
+        let ty = (row + height).min(self.height);
+        let w = tx - fx;
+        let h = ty - fy;
+        let data = (0..(w * h))
+            .map(|i| {
+                let x = fx + i % w;
+                let y = fy + i / w;
+                self.data[y * self.width + x]
+            })
+            .collect::<Vec<_>>();
+        let steepness = (0..(w * h))
+            .map(|i| {
+                let x = fx + i % w;
+                let y = fy + i / w;
+                self.steepness[y * self.width + x]
+            })
+            .collect::<Vec<_>>();
+        Self {
+            width: w,
+            height: h,
+            scale: self.scale,
+            data,
+            steepness,
+        }
+    }
+
+    pub fn change(
+        &mut self,
+        col: usize,
+        row: usize,
+        width: usize,
+        height: usize,
+        data: Vec<u8>,
+    ) -> Result<(), DensityMapError> {
+        if col == 0 && row == 0 && width == self.width && height == self.height {
+            *self = Self::new(width, height, self.scale, data)?;
+            Ok(())
+        } else if data.len() == width * height {
+            for (i, v) in data.into_iter().enumerate() {
+                let x = col + i % width;
+                let y = row + i / width;
+                self.data[y * self.width + x] = v as Scalar / 255.0;
+            }
+            let fx = col.checked_sub(1).unwrap_or(col);
+            let fy = row.checked_sub(1).unwrap_or(row);
+            let tx = (col + width + 1).min(self.width);
+            let ty = (row + height + 1).min(self.height);
+            for row in fy..ty {
+                for col in fx..tx {
+                    let mut result = 0.0;
+                    {
+                        let col = col as isize;
+                        let row = row as isize;
+                        for x in (col - 1)..(col + 1) {
+                            for y in (row - 1)..(row + 1) {
+                                let a = Self::raw_value(x, y, self.width, self.height, &self.data);
+                                let b =
+                                    Self::raw_value(x + 1, y, self.width, self.height, &self.data);
+                                let c = Self::raw_value(
+                                    x + 1,
+                                    y + 1,
+                                    self.width,
+                                    self.height,
+                                    &self.data,
+                                );
+                                let d =
+                                    Self::raw_value(x, y + 1, self.width, self.height, &self.data);
+                                let ab = (a - b).abs();
+                                let cd = (c - d).abs();
+                                let ac = (a - c).abs();
+                                let bd = (b - d).abs();
+                                let ad = (a - d).abs();
+                                let bc = (b - c).abs();
+                                result += (ab + cd + ac + bd + ad + bc) / 12.0;
+                            }
+                        }
+                    }
+                    self.steepness[row * self.width + col] = result;
+                }
+            }
+            Ok(())
+        } else {
+            Err(DensityMapError::WrongDataLength(data.len(), width * height))
+        }
     }
 
     fn raw_value(x: isize, y: isize, w: usize, h: usize, data: &[Scalar]) -> Scalar {

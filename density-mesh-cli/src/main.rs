@@ -326,10 +326,7 @@ fn run_app(matches: ArgMatches) {
                 println!("{:#?}", settings);
             }
             let mesh = if verbose {
-                generate_densitymesh_from_points_cloud_tracked(
-                    vec![],
-                    map,
-                    settings,
+                DensityMeshGenerator::new(vec![], map, settings).process_wait_tracked(
                     |current, limit, percentage| {
                         println!(
                             "Progress: {}% ({} / {})",
@@ -340,7 +337,7 @@ fn run_app(matches: ArgMatches) {
                     },
                 )
             } else {
-                generate_densitymesh_from_points_cloud(vec![], map, settings)
+                DensityMeshGenerator::new(vec![], map, settings).process_wait()
             }
             .expect("Cannot produce density mesh");
             if json {
@@ -419,6 +416,8 @@ fn apply_mesh_on_map(image: &mut DynamicImage, mesh: &DensityMesh) {
         apply_line_on_map(image, a, b);
         apply_line_on_map(image, b, c);
         apply_line_on_map(image, c, a);
+        let p = (a + b + c) / 3.0;
+        image.put_pixel(p.x as _, p.y as _, [0, 0, 255, 255].into());
     }
     for p in &mesh.points {
         let x = p.x as isize;
@@ -478,82 +477,82 @@ mod tests {
 
     #[test]
     fn test_cli() {
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "image",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.data.png",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "image",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.steepness.png",
-        //     "-s",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "mesh",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.json",
-        //     "--json",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "mesh",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.pretty.json",
-        //     "--json-pretty",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "mesh",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.yaml",
-        //     "--yaml",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "mesh",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.obj",
-        //     "--obj",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
-        // run_app(make_app().get_matches_from(vec![
-        //     "density-mesh",
-        //     "mesh",
-        //     "-i",
-        //     "../resources/logo.png",
-        //     "-o",
-        //     "../resources/logo.vis.png",
-        //     "--png",
-        //     "--density-source",
-        //     "alpha",
-        // ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "image",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.data.png",
+            "--density-source",
+            "alpha",
+        ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "image",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.steepness.png",
+            "-s",
+            "--density-source",
+            "alpha",
+        ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "mesh",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.json",
+            "--json",
+            "--density-source",
+            "alpha",
+        ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "mesh",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.pretty.json",
+            "--json-pretty",
+            "--density-source",
+            "alpha",
+        ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "mesh",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.yaml",
+            "--yaml",
+            "--density-source",
+            "alpha",
+        ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "mesh",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.obj",
+            "--obj",
+            "--density-source",
+            "alpha",
+        ]));
+        run_app(make_app().get_matches_from(vec![
+            "density-mesh",
+            "mesh",
+            "-i",
+            "../resources/logo.png",
+            "-o",
+            "../resources/logo.vis.png",
+            "--png",
+            "--density-source",
+            "alpha",
+        ]));
     }
 
     #[test]
@@ -583,7 +582,8 @@ mod tests {
                     keep_invisible_triangles: true,
                     ..Default::default()
                 };
-                let mesh = generate_densitymesh_from_points_cloud(vec![], map, settings)
+                let mesh = DensityMeshGenerator::new(vec![], map, settings)
+                    .process_wait()
                     .expect("Cannot produce density mesh");
                 apply_mesh_on_map(&mut image, &mesh);
                 (col, row, image)
@@ -596,7 +596,47 @@ mod tests {
                 .expect("Could not copy subimage");
         }
         image
+            .save("../resources/heightmap.chunks.png")
+            .expect("Cannot save output image");
+    }
+
+    #[test]
+    fn test_live() {
+        let image = DynamicImage::ImageRgba8(
+            image::open("../resources/heightmap.png")
+                .expect("Cannot open file")
+                .to_rgba(),
+        );
+        let settings = GenerateDensityImageSettings::default();
+        let map = generate_densitymap_from_image(image.clone(), &settings)
+            .expect("Cannot produce density map image");
+        let settings = GenerateDensityMeshSettings {
+            points_separation: 16.0.into(),
+            keep_invisible_triangles: true,
+            extrude_size: Some(8.0),
+            ..Default::default()
+        };
+        let mut live = LiveDensityMesh::new(map, settings.clone());
+        live.process_wait().expect("Cannot process live changes");
+        live.change_map(64, 64, 128, 128, vec![255; 128 * 128], settings.clone())
+            .expect("Cannot change live mesh map region");
+        live.process_wait().expect("Cannot process live changes");
+        live.change_map(384, 384, 64, 64, vec![0; 64 * 64], settings)
+            .expect("Cannot change live mesh map region");
+        live.process_wait().expect("Cannot process live changes");
+        let mut image =
+            DynamicImage::ImageRgba8(generate_image_from_densitymap(live.map(), false).to_rgba());
+        apply_mesh_on_map(&mut image, live.mesh().unwrap());
+        image
             .save("../resources/heightmap.vis.png")
+            .expect("Cannot save output image");
+        let image = generate_image_from_densitymap(live.map(), false);
+        image
+            .save("../resources/heightmap.data.png")
+            .expect("Cannot save output image");
+        let image = generate_image_from_densitymap(live.map(), true);
+        image
+            .save("../resources/heightmap.steepness.png")
             .expect("Cannot save output image");
     }
 }

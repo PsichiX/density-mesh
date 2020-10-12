@@ -70,13 +70,54 @@ for (col, row, subimage) in images {
         .expect("Could not copy subimage");
 }
 image
-    .save("../resources/heightmap.vis.png")
+    .save("../resources/heightmap.chunks.png")
     .expect("Cannot save output image");
 ```
 
 Result of working with chunks might look like that:
 
-![image chunks](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/heightmap.vis.png)
+![image chunks](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/heightmap.chunks.png)
+
+#### Real-time density mesh modifications
+Imagine that you have a one big mesh, you want to modify variable size regions
+of this mesh and don't want to split it into chunks - for this use case there is
+specialized `LiveDensityMesh` type.
+
+```rust
+let image = DynamicImage::ImageRgba8(
+    image::open("../resources/heightmap.png")
+        .expect("Cannot open file")
+        .to_rgba(),
+);
+let settings = GenerateDensityImageSettings::default();
+let map = generate_densitymap_from_image(image.clone(), &settings)
+    .expect("Cannot produce density map image");
+let settings = GenerateDensityMeshSettings {
+    points_separation: 16.0.into(),
+    keep_invisible_triangles: true,
+    extrude_size: Some(8.0),
+    ..Default::default()
+};
+let mut live = LiveDensityMesh::new(map, settings.clone());
+live.process_wait().expect("Cannot process live changes");
+live.change_map(64, 64, 128, 128, vec![255; 128 * 128], settings.clone())
+    .expect("Cannot change live mesh map region");
+live.process_wait().expect("Cannot process live changes");
+live.change_map(384, 384, 64, 64, vec![0; 64 * 64], settings)
+    .expect("Cannot change live mesh map region");
+live.process_wait().expect("Cannot process live changes");
+let mut image = DynamicImage::ImageRgba8(
+    generate_image_from_densitymap(live.map(), false).to_rgba(),
+);
+apply_mesh_on_map(&mut image, live.mesh().unwrap());
+image
+    .save("../resources/heightmap.vis.png")
+    .expect("Cannot save output image");
+```
+
+With that we have added two solid rectangles and result looks like:
+
+![image live](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/heightmap.live.png)
 
 ## CLI
 #### Install / Update
@@ -91,12 +132,12 @@ density-mesh mesh -i image.png -o mesh.obj --obj
 
 #### Options
 ```
-density-mesh-cli 1.0.0
+density-mesh-cli 1.3.0
 Patryk 'PsichiX' Budzynski <psichix@gmail.com>
 CLI app for density mesh generator
 
 USAGE:
-    density-mesh [SUBCOMMAND]
+    density-mesh.exe [SUBCOMMAND]
 
 FLAGS:
     -h, --help       Prints help information
@@ -109,11 +150,11 @@ SUBCOMMANDS:
 ```
 
 ```
-density-mesh-image
+density-mesh.exe-image
 Produce density map image
 
 USAGE:
-    density-mesh image [FLAGS] [OPTIONS] --input <PATH> --output <PATH>
+    density-mesh.exe image [FLAGS] [OPTIONS] --input <PATH> --output <PATH>
 
 FLAGS:
     -h, --help         Prints help information
@@ -129,21 +170,23 @@ OPTIONS:
 ```
 
 ```
-density-mesh-mesh
+density-mesh.exe-mesh
 Produce density mesh
 
 USAGE:
-    density-mesh mesh [FLAGS] [OPTIONS] --input <PATH> --output <PATH> <--json|--json-pretty|--yaml|--obj|--png>
+    density-mesh.exe mesh [FLAGS] [OPTIONS] --input <PATH> --output <PATH> <--json|--json-pretty|--yaml|--obj|--png>
 
 FLAGS:
-    -h, --help           Prints help information
-        --json           Produce JSON mesh
-        --json-pretty    Produce pretty JSON mesh
-        --obj            Produce OBJ mesh
-        --png            Produce PNG mesh visualization
-    -V, --version        Prints version information
-        --verbose        Display settings used
-        --yaml           Produce YAML mesh
+    -h, --help                        Prints help information
+        --is-chunk                    Density map is a chunk, part of the bigger density map
+        --json                        Produce JSON mesh
+        --json-pretty                 Produce pretty JSON mesh
+        --keep-invisible-triangles    Keep invisible triangles
+        --obj                         Produce OBJ mesh
+        --png                         Produce PNG mesh visualization
+    -V, --version                     Prints version information
+        --verbose                     Display settings used
+        --yaml                        Produce YAML mesh
 
 OPTIONS:
         --density-source <NAME>            Density source: luma, luma-alpha, red, green, blue, alpha [default: luma-

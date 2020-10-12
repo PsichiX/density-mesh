@@ -1,6 +1,5 @@
 use crate::{
     coord::Coord,
-    generator::DensityMeshGenerator,
     map::DensityMap,
     mesh::{settings::GenerateDensityMeshSettings, DensityMesh, GenerateDensityMeshError},
     triangle::Triangle,
@@ -8,123 +7,6 @@ use crate::{
 };
 use std::collections::HashMap;
 use triangulation::{Delaunay, Point};
-
-/// Generate density mesh from points cloud.
-///
-/// # Arguments
-/// * `points` - List of initial points.
-/// * `map` - Density map.
-/// * `settings` - Density mesh generation settings.
-///
-/// # Returns
-/// Density mesh or error.
-///
-/// # Examples
-/// ```
-/// use density_mesh_core::prelude::*;
-///
-/// let map = DensityMap::new(2, 2, 1, vec![1, 2, 3, 1]).unwrap();
-/// let settings = GenerateDensityMeshSettings {
-///     points_separation: 0.5.into(),
-///     visibility_threshold: 0.0,
-///     steepness_threshold: 0.0,
-///     ..Default::default()
-/// };
-/// assert_eq!(
-///     generate_densitymesh_from_points_cloud(vec![], map, settings),
-///     Ok(DensityMesh {
-///         points: vec![
-///             Coord { x: 0.0, y: 1.0 },
-///             Coord { x: 0.0, y: 0.0 },
-///             Coord { x: 1.0, y: 1.0 },
-///             Coord { x: 1.0, y: 0.0 },
-///         ],
-///         triangles: vec![
-///             Triangle { a: 0, b: 2, c: 1 },
-///             Triangle { a: 2, b: 3, c: 1 },
-///         ],
-///     }),
-/// );
-/// ```
-pub fn generate_densitymesh_from_points_cloud(
-    points: Vec<Coord>,
-    map: DensityMap,
-    settings: GenerateDensityMeshSettings,
-) -> Result<DensityMesh, GenerateDensityMeshError> {
-    let mut generator = DensityMeshGenerator::new(points, map, settings);
-    loop {
-        match generator.process()?.get_mesh_or_self() {
-            Ok(mesh) => return Ok(mesh),
-            Err(gen) => generator = gen,
-        }
-    }
-}
-
-/// Generate density mesh from points cloud, with callback that gets called on progress update.
-///
-/// # Arguments
-/// * `points` - List of initial points.
-/// * `map` - Density map.
-/// * `settings` - Density mesh generation settings.
-/// * `f` - Callback with progress arguments: `(current, limit, percentage)`.
-///
-/// # Returns
-/// Density mesh or error.
-///
-/// # Examples
-/// ```
-/// use density_mesh_core::prelude::*;
-///
-/// let map = DensityMap::new(2, 2, 1, vec![1, 2, 3, 1]).unwrap();
-/// let settings = GenerateDensityMeshSettings {
-///     points_separation: 0.5.into(),
-///     visibility_threshold: 0.0,
-///     steepness_threshold: 0.0,
-///     ..Default::default()
-/// };
-/// assert_eq!(
-///     generate_densitymesh_from_points_cloud_tracked(
-///         vec![],
-///         map,
-///         settings,
-///         |c, l, p| println!("Progress: {}% ({} / {})", p * 100.0, c, l),
-///     ),
-///     Ok(DensityMesh {
-///         points: vec![
-///             Coord { x: 0.0, y: 1.0 },
-///             Coord { x: 0.0, y: 0.0 },
-///             Coord { x: 1.0, y: 1.0 },
-///             Coord { x: 1.0, y: 0.0 },
-///         ],
-///         triangles: vec![
-///             Triangle { a: 0, b: 2, c: 1 },
-///             Triangle { a: 2, b: 3, c: 1 },
-///         ],
-///     }),
-/// );
-/// ```
-pub fn generate_densitymesh_from_points_cloud_tracked<F>(
-    points: Vec<Coord>,
-    map: DensityMap,
-    settings: GenerateDensityMeshSettings,
-    mut f: F,
-) -> Result<DensityMesh, GenerateDensityMeshError>
-where
-    F: FnMut(usize, usize, Scalar),
-{
-    let mut generator = DensityMeshGenerator::new(points, map, settings);
-    let (c, l, p) = generator.progress();
-    f(c, l, p);
-    loop {
-        let gen = generator.process()?;
-        let (c, l, p) = gen.progress();
-        f(c, l, p);
-        match gen.get_mesh_or_self() {
-            Ok(mesh) => return Ok(mesh),
-            Err(gen) => generator = gen,
-        }
-    }
-}
 
 pub(crate) fn triangulate(points: &[Coord]) -> Result<Vec<Triangle>, GenerateDensityMeshError> {
     let points = points
@@ -226,8 +108,22 @@ pub(crate) fn extrude(
     )
 }
 
-fn are_edges_connected(a_from: usize, a_to: usize, b_from: usize, b_to: usize) -> bool {
+pub(crate) fn are_edges_connected(a_from: usize, a_to: usize, b_from: usize, b_to: usize) -> bool {
     (a_from == b_from && a_to == b_to) || (a_from == b_to && a_to == b_from)
+}
+
+pub(crate) fn does_triangle_share_edge(a: usize, b: usize, c: usize, from: usize, to: usize) -> u8 {
+    let mut result = 0;
+    if a == from || a == to {
+        result += 1;
+    }
+    if b == from || b == to {
+        result += 1;
+    }
+    if c == from || c == to {
+        result += 1;
+    }
+    result
 }
 
 pub(crate) fn bake_final_mesh(points: Vec<Coord>, mut triangles: Vec<Triangle>) -> DensityMesh {
