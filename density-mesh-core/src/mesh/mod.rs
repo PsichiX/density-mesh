@@ -1,3 +1,4 @@
+pub mod points_separation;
 pub mod settings;
 
 use crate::{coord::Coord, map::DensityMapError, triangle::Triangle};

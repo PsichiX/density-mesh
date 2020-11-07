@@ -86,6 +86,21 @@ impl Coord {
             y: -self.x,
         }
     }
+
+    /// Tells the side which this point occupy relative to the line.
+    ///
+    /// # Arguments
+    /// * `from` - Start point of the line.
+    /// * `to` - End point of the line.
+    ///
+    /// # Returns
+    /// - `1` - Point lay on the left of the line.
+    /// - `0` - Point lay on the line.
+    /// - `-1` - Point lay on the right of the line.
+    #[inline]
+    pub fn is_left_wrt_line(self, from: Self, to: Self) -> i8 {
+        ((to.x - from.x) * (self.y - from.y) - (self.x - from.x) * (to.y - from.y)) as i8
+    }
 }
 
 impl Add for Coord {

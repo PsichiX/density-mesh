@@ -195,10 +195,12 @@ fn make_app<'a, 'b>() -> App<'a, 'b> {
                         .required(false),
                 )
                 .arg(
-                    Arg::with_name("is-chunk")
-                        .long("is-chunk")
-                        .help("Density map is a chunk, part of the bigger density map")
-                        .takes_value(false)
+                    Arg::with_name("update-region-margin")
+                        .long("update-region-margin")
+                        .value_name("NUMBER")
+                        .help("Margin around update region box")
+                        .default_value("0")
+                        .takes_value(true)
                         .required(false),
                 )
                 .arg(
@@ -311,35 +313,36 @@ fn run_app(matches: ArgMatches) {
             let extrude_size = matches
                 .value_of("extrude-size")
                 .map(|v| v.parse::<Scalar>().expect("Could not parse number"));
-            let is_chunk = matches.is_present("is-chunk");
             let keep_invisible_triangles = matches.is_present("keep-invisible-triangles");
             let settings = GenerateDensityMeshSettings {
-                points_separation: points_separation.into(),
+                points_separation,
                 visibility_threshold,
                 steepness_threshold,
                 max_iterations,
                 extrude_size,
-                is_chunk,
                 keep_invisible_triangles,
             };
             if verbose {
                 println!("{:#?}", settings);
             }
-            let mesh = if verbose {
-                DensityMeshGenerator::new(vec![], map, settings).process_wait_tracked(
-                    |current, limit, percentage| {
+            let mut generator = DensityMeshGenerator::new(vec![], map, settings);
+            if verbose {
+                generator
+                    .process_wait_tracked(|current, limit, percentage| {
                         println!(
                             "Progress: {}% ({} / {})",
                             (percentage * 100.0).max(0.0).min(100.0),
                             current,
                             limit
                         );
-                    },
-                )
+                    })
+                    .expect("Cannot produce density mesh");
             } else {
-                DensityMeshGenerator::new(vec![], map, settings).process_wait()
+                generator
+                    .process_wait()
+                    .expect("Cannot produce density mesh");
             }
-            .expect("Cannot produce density mesh");
+            let mesh = generator.into_mesh().expect("Cannot produce density mesh");
             if json {
                 let contents = serde_json::to_string(&mesh).expect("Could not serialize JSON mesh");
                 write(output, contents).expect("Could not save mesh file");
@@ -556,52 +559,58 @@ mod tests {
     }
 
     #[test]
-    fn test_chunks() {
-        let image = DynamicImage::ImageRgba8(
-            image::open("../resources/heightmap.png")
-                .expect("Cannot open file")
-                .to_rgba(),
-        );
-        let count = 4;
-        let width = image.width() / count;
-        let height = image.height() / count;
-        let images = (0..(count * count))
-            .into_iter()
-            .map(|i| {
-                let col = i % count;
-                let row = i / count;
-                let x = col * width;
-                let y = row * height;
-                let mut image = image.crop_imm(x, y, width + 1, height + 1);
-                let settings = GenerateDensityImageSettings::default();
-                let map = generate_densitymap_from_image(image.clone(), &settings)
-                    .expect("Cannot produce density map image");
-                let settings = GenerateDensityMeshSettings {
-                    points_separation: 16.0.into(),
-                    is_chunk: true,
-                    keep_invisible_triangles: true,
-                    ..Default::default()
-                };
-                let mesh = DensityMeshGenerator::new(vec![], map, settings)
-                    .process_wait()
-                    .expect("Cannot produce density mesh");
-                apply_mesh_on_map(&mut image, &mesh);
-                (col, row, image)
-            })
-            .collect::<Vec<_>>();
-        let mut image = DynamicImage::new_rgba8(width * count, height * count);
-        for (col, row, subimage) in images {
-            image
-                .copy_from(&subimage, col * width, row * height)
-                .expect("Could not copy subimage");
-        }
-        image
-            .save("../resources/heightmap.chunks.png")
-            .expect("Cannot save output image");
-    }
-
-    #[test]
     fn test_live() {
+        const BRUSH_SIZE: usize = 64;
+
+        fn paint(
+            generator: &mut DensityMeshGenerator,
+            x: usize,
+            y: usize,
+            brush: &[u8],
+            additive: bool,
+            settings: &GenerateDensityMeshSettings,
+        ) {
+            let half_size = BRUSH_SIZE / 2;
+            let x = x
+                .checked_sub(half_size)
+                .unwrap_or(0)
+                .min(generator.map().unscaled_width() - BRUSH_SIZE - 1);
+            let y = y
+                .checked_sub(half_size)
+                .unwrap_or(0)
+                .min(generator.map().unscaled_height() - BRUSH_SIZE - 1);
+            let data = (0..(BRUSH_SIZE * BRUSH_SIZE))
+                .map(|i| {
+                    let b = brush[i];
+                    let dc = i % BRUSH_SIZE;
+                    let dr = i / BRUSH_SIZE;
+                    let sc = x + dc;
+                    let sr = y + dr;
+                    let i = sr * generator.map().unscaled_width() + sc;
+                    let v = (generator.map().values()[i] * 255.0) as u8;
+                    if additive {
+                        v.checked_add(b).unwrap_or(255)
+                    } else {
+                        v.checked_sub(b).unwrap_or(0)
+                    }
+                })
+                .collect::<Vec<_>>();
+            generator
+                .change_map(x, y, BRUSH_SIZE, BRUSH_SIZE, data, settings.clone())
+                .expect("Cannot change density map");
+        }
+
+        let brush = {
+            let half_size = BRUSH_SIZE / 2;
+            (0..(BRUSH_SIZE * BRUSH_SIZE))
+                .map(|i| {
+                    let x = (i % BRUSH_SIZE) as Scalar / half_size as Scalar - 1.0;
+                    let y = (i / BRUSH_SIZE) as Scalar / half_size as Scalar - 1.0;
+                    let o = 1.0 - Coord::new(x, y).magnitude().min(1.0);
+                    (o * 255.0) as u8
+                })
+                .collect::<Vec<_>>()
+        };
         let image = DynamicImage::ImageRgba8(
             image::open("../resources/heightmap.png")
                 .expect("Cannot open file")
@@ -613,30 +622,39 @@ mod tests {
         let settings = GenerateDensityMeshSettings {
             points_separation: 16.0.into(),
             keep_invisible_triangles: true,
-            extrude_size: Some(8.0),
             ..Default::default()
         };
-        let mut live = LiveDensityMesh::new(map, settings.clone());
-        live.process_wait().expect("Cannot process live changes");
-        live.change_map(64, 64, 128, 128, vec![255; 128 * 128], settings.clone())
-            .expect("Cannot change live mesh map region");
-        live.process_wait().expect("Cannot process live changes");
-        live.change_map(384, 384, 64, 64, vec![0; 64 * 64], settings)
-            .expect("Cannot change live mesh map region");
-        live.process_wait().expect("Cannot process live changes");
-        let mut image =
-            DynamicImage::ImageRgba8(generate_image_from_densitymap(live.map(), false).to_rgba());
-        apply_mesh_on_map(&mut image, live.mesh().unwrap());
+        let mut generator = DensityMeshGenerator::new(vec![], map, settings.clone());
+        generator
+            .process_wait()
+            .expect("Cannot process generator changes");
+        paint(&mut generator, 100, 100, &brush, true, &settings);
+        generator
+            .process_wait()
+            .expect("Cannot process generator changes");
+        for i in (0)..(5) {
+            let i = 64 + i * 8;
+            paint(&mut generator, i, i, &brush, true, &settings);
+            generator
+                .process_wait()
+                .expect("Cannot process generator changes");
+        }
+        let mut image = image_from_map(generator.map());
+        apply_mesh_on_map(&mut image, generator.mesh().unwrap());
         image
             .save("../resources/heightmap.vis.png")
             .expect("Cannot save output image");
-        let image = generate_image_from_densitymap(live.map(), false);
+        let image = generate_image_from_densitymap(generator.map(), false);
         image
             .save("../resources/heightmap.data.png")
             .expect("Cannot save output image");
-        let image = generate_image_from_densitymap(live.map(), true);
+        let image = generate_image_from_densitymap(generator.map(), true);
         image
             .save("../resources/heightmap.steepness.png")
             .expect("Cannot save output image");
+    }
+
+    fn image_from_map(map: &DensityMap) -> DynamicImage {
+        DynamicImage::ImageRgba8(generate_image_from_densitymap(map, false).to_rgba())
     }
 }

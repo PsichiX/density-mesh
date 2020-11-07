@@ -188,36 +188,14 @@ impl DensityMap {
             .map(move |(i, (v, s))| (i % self.width, i / self.width, *v, *s))
     }
 
-    pub fn crop(&self, col: usize, row: usize, width: usize, height: usize) -> Self {
-        let fx = col.min(self.width);
-        let fy = row.min(self.height);
-        let tx = (col + width).min(self.width);
-        let ty = (row + height).min(self.height);
-        let w = tx - fx;
-        let h = ty - fy;
-        let data = (0..(w * h))
-            .map(|i| {
-                let x = fx + i % w;
-                let y = fy + i / w;
-                self.data[y * self.width + x]
-            })
-            .collect::<Vec<_>>();
-        let steepness = (0..(w * h))
-            .map(|i| {
-                let x = fx + i % w;
-                let y = fy + i / w;
-                self.steepness[y * self.width + x]
-            })
-            .collect::<Vec<_>>();
-        Self {
-            width: w,
-            height: h,
-            scale: self.scale,
-            data,
-            steepness,
-        }
-    }
-
+    /// Change density map region data (replace "pixels") - this recalculates internals.
+    ///
+    /// # Arguments
+    /// * `col` - Column index.
+    /// * `row` - Row index.
+    /// * `width` - Number of columns.
+    /// * `height` - Number of rows.
+    /// * `data` - Data to replace with.
     pub fn change(
         &mut self,
         col: usize,
