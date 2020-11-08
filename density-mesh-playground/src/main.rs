@@ -2,7 +2,7 @@ use density_mesh_core::prelude::*;
 use image::*;
 use minifb::*;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::{collections::VecDeque, time::Duration};
 
 const WIDTH: usize = 256;
 const HEIGHT: usize = 256;
@@ -28,10 +28,8 @@ fn main() {
     let mut last_pos = None;
     let map = DensityMap::new(WIDTH, HEIGHT, 1, vec![127; WIDTH * HEIGHT]).unwrap();
     let settings = GenerateDensityMeshSettings {
-        points_separation: 16.0.into(),
+        points_separation: (5.0, 10.0).into(),
         keep_invisible_triangles: true,
-        // visibility_threshold: -0.0,
-        // steepness_threshold: -0.0,
         ..Default::default()
     };
     let mut generator = DensityMeshGenerator::new(vec![], map.clone(), settings.clone());
@@ -51,6 +49,7 @@ fn main() {
     history.push_back(generator.clone());
     let mut restore = VecDeque::<DensityMeshGenerator>::new();
     let mut time_min_max = None;
+    let mut dirty = true;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         if window.is_key_pressed(Key::S, KeyRepeat::No) {
@@ -127,40 +126,52 @@ fn main() {
                     history.push_back(generator.clone());
                     restore.clear();
                     paint(&mut generator, x, y, &brush, mouse_left, &settings);
+                    dirty = true;
                 }
                 last_pos = Some((x, y));
             }
         } else {
             last_pos = None;
         }
-        let timer = std::time::Instant::now();
-        generator.process_wait().expect("Processing failed");
-        let elapsed = timer.elapsed();
-        time_min_max = match time_min_max {
-            Some((min, max)) => Some((elapsed.min(min), elapsed.max(max))),
-            None => Some((elapsed, elapsed)),
-        };
-        let data = generator
-            .map()
-            .values()
-            .iter()
-            .map(|v| (v * 255.0) as u8)
-            .collect::<Vec<_>>();
-        let image = DynamicImage::ImageLuma8(
-            GrayImage::from_raw(WIDTH as u32, HEIGHT as u32, data).unwrap(),
-        );
-        let mut image = DynamicImage::ImageRgba8(image.into_rgba());
-        apply_generator_on_map(&mut image, &generator, [0, 255, 0, 255]);
-        let buffer = image
-            .pixels()
-            .map(|(_, _, pixel)| {
-                let [r, g, b, _] = pixel.0;
-                (b as u32) | ((g as u32) << 8) | ((r as u32) << 16)
-            })
-            .collect::<Vec<_>>();
-        window
-            .update_with_buffer(&buffer, WIDTH, HEIGHT)
-            .expect("Could not update window buffer");
+        if dirty {
+            let timer = std::time::Instant::now();
+            dirty = generator
+                .process_wait_timeout(Duration::from_millis(16))
+                .expect("Processing failed")
+                == ProcessStatus::InProgress;
+            let elapsed = timer.elapsed();
+            time_min_max = match time_min_max {
+                Some((min, max)) => Some((elapsed.min(min), elapsed.max(max))),
+                None => Some((elapsed, elapsed)),
+            };
+            if dirty {
+                window.update();
+            } else {
+                let data = generator
+                    .map()
+                    .values()
+                    .iter()
+                    .map(|v| (v * 255.0) as u8)
+                    .collect::<Vec<_>>();
+                let image = DynamicImage::ImageLuma8(
+                    GrayImage::from_raw(WIDTH as u32, HEIGHT as u32, data).unwrap(),
+                );
+                let mut image = DynamicImage::ImageRgba8(image.into_rgba());
+                apply_generator_on_map(&mut image, &generator, [0, 255, 0, 255]);
+                let buffer = image
+                    .pixels()
+                    .map(|(_, _, pixel)| {
+                        let [r, g, b, _] = pixel.0;
+                        (b as u32) | ((g as u32) << 8) | ((r as u32) << 16)
+                    })
+                    .collect::<Vec<_>>();
+                window
+                    .update_with_buffer(&buffer, WIDTH, HEIGHT)
+                    .expect("Could not update window buffer");
+            }
+        } else {
+            window.update();
+        }
     }
     if let Some((min, max)) = time_min_max {
         println!("GENERATION TIME: {:?} -> {:?}", min, max);

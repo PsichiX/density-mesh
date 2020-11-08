@@ -26,62 +26,21 @@ Crates used to generate 2D mesh from images representing density/height map.
 - https://crates.io/crates/density-mesh-core - Module used to generate mesh from density map.
 - https://crates.io/crates/density-mesh-image - Module used to generate density map from image.
 
-Typical use case would be to use two of them to create mesh from images but in case you have your own image handler, you can stick to the core module and produce density maps by yourself.
+Typical use case would be to use two of them to create mesh from images but in
+case you have your own image handler, you can stick to the core module and
+produce density maps by yourself.
 
 #### Working with chunks
-Chunks are used for example for real-time terrain generation when you have a destructible heightmap and just want to update modified chunks at a time, instead of whole terrain.
-
-```rust
-let image = DynamicImage::ImageRgba8(
-    image::open("../resources/heightmap.png")
-        .expect("Cannot open file")
-        .to_rgba(),
-);
-let count = 4;
-let width = image.width() / count;
-let height = image.height() / count;
-let images = (0..(count * count))
-    .into_iter()
-    .map(|i| {
-        let col = i % count;
-        let row = i / count;
-        let x = col * width;
-        let y = row * height;
-        let mut image = image.crop_imm(x, y, width + 1, height + 1);
-        let settings = GenerateDensityImageSettings::default();
-        let map = generate_densitymap_from_image(image.clone(), &settings)
-            .expect("Cannot produce density map image");
-        let settings = GenerateDensityMeshSettings {
-            points_separation: 16.0,
-            is_chunk: true,
-            keep_invisible_triangles: true,
-            ..Default::default()
-        };
-        let mesh = generate_densitymesh_from_points_cloud(vec![], map, settings)
-            .expect("Cannot produce density mesh");
-        apply_mesh_on_map(&mut image, &mesh);
-        (col, row, image)
-    })
-    .collect::<Vec<_>>();
-let mut image = DynamicImage::new_rgba8(width * count, height * count);
-for (col, row, subimage) in images {
-    image
-        .copy_from(&subimage, col * width, row * height)
-        .expect("Could not copy subimage");
-}
-image
-    .save("../resources/heightmap.chunks.png")
-    .expect("Cannot save output image");
-```
-
-Result of working with chunks might look like that:
-
-![image chunks](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/heightmap.chunks.png)
+In the past, there was a way to optimize work with big maps using chunks - these
+chunks wasn't giving a reliable topology and had to be removed.
 
 #### Real-time density mesh modifications
 Imagine that you have a one big mesh, you want to modify variable size regions
 of this mesh and don't want to split it into chunks - for this use case there is
-specialized `LiveDensityMesh` type.
+specialized `DensityMeshGenerator` type. Keep in mind that at the moment, even
+if you change only really smart part of the map, whole mesh will be rebuilt so
+for big maps this might take long which means, for now you shouldn't use this
+crate for high performance, HD maps generation.
 
 ```rust
 let image = DynamicImage::ImageRgba8(
@@ -95,29 +54,41 @@ let map = generate_densitymap_from_image(image.clone(), &settings)
 let settings = GenerateDensityMeshSettings {
     points_separation: 16.0.into(),
     keep_invisible_triangles: true,
-    extrude_size: Some(8.0),
     ..Default::default()
 };
-let mut live = LiveDensityMesh::new(map, settings.clone());
-live.process_wait().expect("Cannot process live changes");
-live.change_map(64, 64, 128, 128, vec![255; 128 * 128], settings.clone())
+let mut generator = DensityMeshGenerator::new(vec![], map, settings.clone());
+generator.process_wait().expect("Cannot process changes");
+generator
+    .change_map(64, 64, 128, 128, vec![255; 128 * 128], settings.clone())
     .expect("Cannot change live mesh map region");
-live.process_wait().expect("Cannot process live changes");
-live.change_map(384, 384, 64, 64, vec![0; 64 * 64], settings)
+generator
+    .process_wait()
+    .expect("Cannot process live changes");
+generator
+    .change_map(384, 384, 64, 64, vec![0; 64 * 64], settings)
     .expect("Cannot change live mesh map region");
-live.process_wait().expect("Cannot process live changes");
+generator
+    .process_wait()
+    .expect("Cannot process live changes");
 let mut image = DynamicImage::ImageRgba8(
-    generate_image_from_densitymap(live.map(), false).to_rgba(),
+    generate_image_from_densitymap(generator.map(), false).to_rgba(),
 );
-apply_mesh_on_map(&mut image, live.mesh().unwrap());
+apply_mesh_on_map(&mut image, generator.mesh().unwrap());
 image
-    .save("../resources/heightmap.vis.png")
+    .save("../resources/heightmap.live.png")
     .expect("Cannot save output image");
 ```
 
 With that we have added two solid rectangles and result looks like:
 
-![image live](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/heightmap.vis.png)
+![image live](https://raw.githubusercontent.com/PsichiX/density-mesh/master/resources/heightmap.live.png)
+
+#### Optimizations of map region changes
+Previous versions had live mesh generator which regenerated only the parts of
+the mesh that given region has changed - for now this is not further supported
+because of corner case situations where mesh generation crashes internally
+making use of this feature unreliable. This feature wil be added later when it
+will be redesigned.
 
 ## CLI
 #### Install / Update
@@ -132,7 +103,7 @@ density-mesh mesh -i image.png -o mesh.obj --obj
 
 #### Options
 ```
-density-mesh-cli 1.3.0
+density-mesh-cli 1.4.0
 Patryk 'PsichiX' Budzynski <psichix@gmail.com>
 CLI app for density mesh generator
 
@@ -178,7 +149,6 @@ USAGE:
 
 FLAGS:
     -h, --help                        Prints help information
-        --is-chunk                    Density map is a chunk, part of the bigger density map
         --json                        Produce JSON mesh
         --json-pretty                 Produce pretty JSON mesh
         --keep-invisible-triangles    Keep invisible triangles
@@ -198,5 +168,6 @@ OPTIONS:
         --points-separation <NUMBER>       Points separation [default: 10]
         --scale <INTEGER>                  Image scale [default: 1]
         --steepness-threshold <NUMBER>     Steepness threshold [default: 0.01]
+        --update-region-margin <NUMBER>    Margin around update region box [default: 0]
         --visibility-threshold <NUMBER>    VIsibility threshold [default: 0.01]
 ```

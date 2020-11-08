@@ -13,8 +13,8 @@ pub enum GenerateDensityMeshError {
     UninitializedGenerator,
     /// Failed points triangulation.
     FailedTriangulation,
-    /// Trying to process aready completed generation.
-    AlreadyCompleted(DensityMesh),
+    /// There is no density mesh created.
+    NothingCreated,
 }
 
 /// Density mesh.

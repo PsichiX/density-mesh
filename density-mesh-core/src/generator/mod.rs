@@ -15,7 +15,10 @@ use crate::{
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 use triangulation::{Delaunay, Point};
 
 #[cfg(feature = "parallel")]
@@ -343,6 +346,26 @@ impl DensityMeshGenerator {
     /// Process incoming changes until none is left to do.
     ///
     /// # Arguments
+    /// * `timeout` - Duration of time that processing can take.
+    ///
+    /// # Returns
+    /// Process status or generation error.
+    pub fn process_wait_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<ProcessStatus, GenerateDensityMeshError> {
+        let timer = Instant::now();
+        loop {
+            let status = self.process()?;
+            if status != ProcessStatus::InProgress || timer.elapsed() > timeout {
+                return Ok(status);
+            }
+        }
+    }
+
+    /// Process incoming changes until none is left to do.
+    ///
+    /// # Arguments
     /// * `f` - Callback triggered on every processing step. Signature: `fn(progress, limit, factor)`.
     ///
     /// # Returns
@@ -358,6 +381,35 @@ impl DensityMeshGenerator {
             f(c, l, p);
         }
         Ok(())
+    }
+
+    /// Process incoming changes until none is left to do.
+    ///
+    /// # Arguments
+    /// * `f` - Callback triggered on every processing step. Signature: `fn(progress, limit, factor)`.
+    /// * `timeout` - Duration of time that processing can take.
+    ///
+    /// # Returns
+    /// Process status or generation error.
+    pub fn process_wait_timeout_tracked<F>(
+        &mut self,
+        mut f: F,
+        timeout: Duration,
+    ) -> Result<ProcessStatus, GenerateDensityMeshError>
+    where
+        F: FnMut(usize, usize, Scalar),
+    {
+        let timer = Instant::now();
+        let (c, l, p) = self.progress();
+        f(c, l, p);
+        loop {
+            let status = self.process()?;
+            let (c, l, p) = self.progress();
+            f(c, l, p);
+            if status != ProcessStatus::InProgress || timer.elapsed() > timeout {
+                return Ok(status);
+            }
+        }
     }
 
     fn extrude(

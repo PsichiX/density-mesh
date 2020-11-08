@@ -654,6 +654,44 @@ mod tests {
             .expect("Cannot save output image");
     }
 
+    #[test]
+    fn test_readme() {
+        let image = DynamicImage::ImageRgba8(
+            image::open("../resources/heightmap.png")
+                .expect("Cannot open file")
+                .to_rgba(),
+        );
+        let settings = GenerateDensityImageSettings::default();
+        let map = generate_densitymap_from_image(image.clone(), &settings)
+            .expect("Cannot produce density map image");
+        let settings = GenerateDensityMeshSettings {
+            points_separation: 16.0.into(),
+            keep_invisible_triangles: true,
+            ..Default::default()
+        };
+        let mut generator = DensityMeshGenerator::new(vec![], map, settings.clone());
+        generator.process_wait().expect("Cannot process changes");
+        generator
+            .change_map(64, 64, 128, 128, vec![255; 128 * 128], settings.clone())
+            .expect("Cannot change live mesh map region");
+        generator
+            .process_wait()
+            .expect("Cannot process live changes");
+        generator
+            .change_map(384, 384, 64, 64, vec![0; 64 * 64], settings)
+            .expect("Cannot change live mesh map region");
+        generator
+            .process_wait()
+            .expect("Cannot process live changes");
+        let mut image = DynamicImage::ImageRgba8(
+            generate_image_from_densitymap(generator.map(), false).to_rgba(),
+        );
+        apply_mesh_on_map(&mut image, generator.mesh().unwrap());
+        image
+            .save("../resources/heightmap.live.png")
+            .expect("Cannot save output image");
+    }
+
     fn image_from_map(map: &DensityMap) -> DynamicImage {
         DynamicImage::ImageRgba8(generate_image_from_densitymap(map, false).to_rgba())
     }
