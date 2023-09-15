@@ -156,7 +156,7 @@ fn main() {
                 let image = DynamicImage::ImageLuma8(
                     GrayImage::from_raw(WIDTH as u32, HEIGHT as u32, data).unwrap(),
                 );
-                let mut image = DynamicImage::ImageRgba8(image.into_rgba());
+                let mut image = DynamicImage::ImageRgba8(image.into_rgba8());
                 apply_generator_on_map(&mut image, &generator, [0, 255, 0, 255]);
                 let buffer = image
                     .pixels()

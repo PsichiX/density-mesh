@@ -2,7 +2,7 @@
 name = "density-mesh-core"
 version = "1.5.0"
 authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Core module for density mesh generator"
 license = "MIT"
 homepage = "https://github.com/PsichiX/density-mesh"
@@ -16,4 +16,4 @@ parallel = ["rayon"]
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 triangulation = "0.1"
-rayon = { version = "1.4", optional = true }
+rayon = { version = "1.7", optional = true }

@@ -178,9 +178,9 @@ impl DensityMap {
     ///     ],
     /// );
     /// ```
-    pub fn value_steepness_iter<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = (usize, usize, Scalar, Scalar)> + 'a {
+    pub fn value_steepness_iter(
+        &self,
+    ) -> impl Iterator<Item = (usize, usize, Scalar, Scalar)> + '_ {
         self.data
             .iter()
             .zip(self.steepness.iter())
