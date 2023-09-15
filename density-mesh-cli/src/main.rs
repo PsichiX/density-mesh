@@ -1,7 +1,7 @@
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
 use density_mesh_core::prelude::*;
 use density_mesh_image::prelude::*;
-use image::{DynamicImage, GenericImage, GenericImageView};
+use image::{DynamicImage, GenericImage};
 use obj_exporter::{Geometry, ObjSet, Object, Primitive, Shape, TVertex, Vertex};
 use std::fs::write;
 

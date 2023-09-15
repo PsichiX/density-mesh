@@ -5,7 +5,7 @@ use density_mesh_core::{
     map::{DensityMap, DensityMapError},
     Scalar,
 };
-use image::{imageops::FilterType, DynamicImage, GenericImageView, GrayImage};
+use image::{imageops::FilterType, DynamicImage, GrayImage};
 
 /// Generate density map image.
 ///
