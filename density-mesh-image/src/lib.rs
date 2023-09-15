@@ -62,13 +62,13 @@ pub fn generate_densitymap_from_image(
     };
     match settings.density_source {
         ImageDensitySource::Luma => {
-            let img = image.to_luma();
+            let img = image.to_luma8();
             DensityMap::new(img.width() as _, img.height() as _, scale, img.into_raw())
         }
         ImageDensitySource::LumaAlpha => {
             let w = image.width();
             let h = image.height();
-            let img = image.to_luma_alpha();
+            let img = image.to_luma_alpha8();
             let data = img
                 .into_raw()
                 .chunks(2)
@@ -80,7 +80,7 @@ pub fn generate_densitymap_from_image(
             let w = image.width();
             let h = image.height();
             let data = image
-                .to_rgba()
+                .to_rgba8()
                 .into_raw()
                 .chunks(4)
                 .map(|c| c[0])
@@ -91,7 +91,7 @@ pub fn generate_densitymap_from_image(
             let w = image.width();
             let h = image.height();
             let data = image
-                .to_rgba()
+                .to_rgba8()
                 .into_raw()
                 .chunks(4)
                 .map(|c| c[1])
@@ -102,7 +102,7 @@ pub fn generate_densitymap_from_image(
             let w = image.width();
             let h = image.height();
             let data = image
-                .to_rgba()
+                .to_rgba8()
                 .into_raw()
                 .chunks(4)
                 .map(|c| c[2])
@@ -113,7 +113,7 @@ pub fn generate_densitymap_from_image(
             let w = image.width();
             let h = image.height();
             let data = image
-                .to_rgba()
+                .to_rgba8()
                 .into_raw()
                 .chunks(4)
                 .map(|c| c[3])

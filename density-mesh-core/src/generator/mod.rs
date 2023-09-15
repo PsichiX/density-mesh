@@ -146,7 +146,7 @@ impl DensityMeshGenerator {
     /// Result with process status when ok, otherwise error.
     #[allow(clippy::many_single_char_names)]
     pub fn process(&mut self) -> Result<ProcessStatus, GenerateDensityMeshError> {
-        if let Some(current) = std::mem::replace(&mut self.current, None) {
+        if let Some(current) = self.current.take() {
             match current {
                 ProcessingChange::FindingPoints {
                     settings,

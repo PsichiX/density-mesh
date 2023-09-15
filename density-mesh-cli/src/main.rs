@@ -402,7 +402,7 @@ fn run_app(matches: ArgMatches) {
                 };
                 obj_exporter::export_to_file(&objects, output).expect("Cannot save mesh file");
             } else if png {
-                let mut image = DynamicImage::ImageRgba8(image.to_rgba());
+                let mut image = DynamicImage::ImageRgba8(image.to_rgba8());
                 apply_mesh_on_map(&mut image, &mesh);
                 image.save(output).expect("Cannot save output image");
             }
@@ -572,12 +572,10 @@ mod tests {
         ) {
             let half_size = BRUSH_SIZE / 2;
             let x = x
-                .checked_sub(half_size)
-                .unwrap_or(0)
+                .saturating_sub(half_size)
                 .min(generator.map().unscaled_width() - BRUSH_SIZE - 1);
             let y = y
-                .checked_sub(half_size)
-                .unwrap_or(0)
+                .saturating_sub(half_size)
                 .min(generator.map().unscaled_height() - BRUSH_SIZE - 1);
             let data = (0..(BRUSH_SIZE * BRUSH_SIZE))
                 .map(|i| {
@@ -589,9 +587,9 @@ mod tests {
                     let i = sr * generator.map().unscaled_width() + sc;
                     let v = (generator.map().values()[i] * 255.0) as u8;
                     if additive {
-                        v.checked_add(b).unwrap_or(255)
+                        v.saturating_add(b)
                     } else {
-                        v.checked_sub(b).unwrap_or(0)
+                        v.saturating_sub(b)
                     }
                 })
                 .collect::<Vec<_>>();
@@ -614,7 +612,7 @@ mod tests {
         let image = DynamicImage::ImageRgba8(
             image::open("../resources/heightmap.png")
                 .expect("Cannot open file")
-                .to_rgba(),
+                .to_rgba8(),
         );
         let settings = GenerateDensityImageSettings::default();
         let map = generate_densitymap_from_image(image.clone(), &settings)
@@ -632,7 +630,7 @@ mod tests {
         generator
             .process_wait()
             .expect("Cannot process generator changes");
-        for i in (0)..(5) {
+        for i in 0..5 {
             let i = 64 + i * 8;
             paint(&mut generator, i, i, &brush, true, &settings);
             generator
@@ -659,7 +657,7 @@ mod tests {
         let image = DynamicImage::ImageRgba8(
             image::open("../resources/heightmap.png")
                 .expect("Cannot open file")
-                .to_rgba(),
+                .to_rgba8(),
         );
         let settings = GenerateDensityImageSettings::default();
         let map = generate_densitymap_from_image(image.clone(), &settings)
@@ -684,7 +682,7 @@ mod tests {
             .process_wait()
             .expect("Cannot process live changes");
         let mut image = DynamicImage::ImageRgba8(
-            generate_image_from_densitymap(generator.map(), false).to_rgba(),
+            generate_image_from_densitymap(generator.map(), false).to_rgba8(),
         );
         apply_mesh_on_map(&mut image, generator.mesh().unwrap());
         image
@@ -693,6 +691,6 @@ mod tests {
     }
 
     fn image_from_map(map: &DensityMap) -> DynamicImage {
-        DynamicImage::ImageRgba8(generate_image_from_densitymap(map, false).to_rgba())
+        DynamicImage::ImageRgba8(generate_image_from_densitymap(map, false).to_rgba8())
     }
 }
