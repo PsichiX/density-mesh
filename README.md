@@ -103,71 +103,82 @@ density-mesh mesh -i image.png -o mesh.obj --obj
 
 #### Options
 ```
-density-mesh-cli 1.4.0
-Patryk 'PsichiX' Budzynski <psichix@gmail.com>
+density-mesh 1.5.0
 CLI app for density mesh generator
+Patryk 'PsichiX' Budzynski <psichix@gmail.com>
 
-USAGE:
-    density-mesh.exe [SUBCOMMAND]
+Usage:
+  density-mesh <COMMAND>
 
-FLAGS:
-    -h, --help       Prints help information
-    -V, --version    Prints version information
+Commands:
+  image  Produce density map image
+  mesh   Produce density mesh
+  help   Print this message or the help of the given subcommand(s)
 
-SUBCOMMANDS:
-    help     Prints this message or the help of the given subcommand(s)
-    image    Produce density map image
-    mesh     Produce density mesh
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
 ```
 
 ```
-density-mesh.exe-image
+density-mesh-image
 Produce density map image
 
-USAGE:
-    density-mesh.exe image [FLAGS] [OPTIONS] --input <PATH> --output <PATH>
+Usage:
+  density-mesh image [OPTIONS] --input <PATH> --output <PATH>
 
-FLAGS:
-    -h, --help         Prints help information
-    -s, --steepness    Produce steepness image
-    -V, --version      Prints version information
-        --verbose      Display settings used
-
-OPTIONS:
-        --density-source <NAME>    Density source: luma, luma-alpha, red, green, blue, alpha [default: luma-alpha]
-    -i, --input <PATH>             Input image file
-    -o, --output <PATH>            Output image file
-        --scale <INTEGER>          Image scale [default: 1]
+Options:
+  -i, --input <PATH>              Input file path
+  -o, --output <PATH>             Output file path
+      --density-source <CHANNEL>  Use an alternate channel as density source [default: luma-alpha] [possible values: luma, luma-alpha, red, green, blue, alpha]
+      --scale <INTEGER>           Image scale [default: 1]
+      --verbose                   Display settings used
+  -s, --steepness                 Produce steepness image
+  -h, --help                      Print help
 ```
 
 ```
-density-mesh.exe-mesh
+density-mesh-mesh
 Produce density mesh
 
-USAGE:
-    density-mesh.exe mesh [FLAGS] [OPTIONS] --input <PATH> --output <PATH> <--json|--json-pretty|--yaml|--obj|--png>
+Usage:
+  density-mesh mesh [OPTIONS] --input <PATH> --output <PATH> <--json|--json-pretty|--yaml|--obj|--png>
 
-FLAGS:
-    -h, --help                        Prints help information
-        --json                        Produce JSON mesh
-        --json-pretty                 Produce pretty JSON mesh
-        --keep-invisible-triangles    Keep invisible triangles
-        --obj                         Produce OBJ mesh
-        --png                         Produce PNG mesh visualization
-    -V, --version                     Prints version information
-        --verbose                     Display settings used
-        --yaml                        Produce YAML mesh
-
-OPTIONS:
-        --density-source <NAME>            Density source: luma, luma-alpha, red, green, blue, alpha [default: luma-
-                                           alpha]
-        --extrude-size <NUMBER>            Extrude size
-    -i, --input <PATH>                     Input image file
-        --max-iterations <INTEGER>         Maximum tries number when finding point to place [default: 32]
-    -o, --output <PATH>                    Output mesh file
-        --points-separation <NUMBER>       Points separation [default: 10]
-        --scale <INTEGER>                  Image scale [default: 1]
-        --steepness-threshold <NUMBER>     Steepness threshold [default: 0.01]
-        --update-region-margin <NUMBER>    Margin around update region box [default: 0]
-        --visibility-threshold <NUMBER>    VIsibility threshold [default: 0.01]
+Options:
+  -i, --input <PATH>
+          Input file path
+  -o, --output <PATH>
+          Output file path
+      --density-source <CHANNEL>
+          Use an alternate channel as density source [default: luma-alpha] [possible values: luma, luma-alpha, red, green, blue, alpha]
+      --scale <INTEGER>
+          Image scale [default: 1]
+      --verbose
+          Display settings used
+      --json
+          Produce JSON mesh
+      --json-pretty
+          Produce pretty JSON mesh
+      --yaml
+          Produce YAML mesh
+      --obj
+          Produce OBJ mesh
+      --png
+          Produce PNG mesh visualization
+      --points-separation <NUMBER_OR_RANGE>
+          Points separation [default: 10]
+      --visibility-threshold <NUMBER>
+          Visibility threshold [default: 0.01]
+      --steepness-threshold <NUMBER>
+          Steepness threshold [default: 0.01]
+      --max-iterations <INTEGER>
+          Maximum number of tries when finding point to place [default: 32]
+      --extrude-size <NUMBER>
+          Extrude size
+      --update-region-margin <NUMBER>
+          Margin around update region box; currently unused [default: 0]
+      --keep-invisible-triangles
+          Keep invisible triangles
+  -h, --help
+          Print help (see more with '--help')
 ```
